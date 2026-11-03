@@ -6,6 +6,8 @@ import {
     NEBBIA_APPEAR_STYLES,
     NEBBIA_BEHIND,
     NEBBIA_FADE_STYLES,
+    NEBBIA_GLASS,
+    NEBBIA_GLASS_FOR,
     NEBBIA_LAYOUTS,
     NEBBIA_LIMITS,
     NEBBIA_RAIN,
@@ -59,12 +61,15 @@ export const normalizeNebbiaTuning = (stored: unknown): NebbiaTuning => {
     ])) as Pick<NebbiaTuning, NebbiaNumberKey>;
     const appear = values.appear ?? LEGACY_APPEAR[String(values.appearMode)];
     const fade = values.fade ?? LEGACY_FADE[String(values.fadeMode)];
+    const behind = NEBBIA_BEHIND.find(b => b === values.behind) ?? base.behind;
     return {
         render: readRender(values.render, values.resolution),
         appear: subsetOf(NEBBIA_APPEAR_STYLES, appear, base.appear),
         fade: subsetOf(NEBBIA_FADE_STYLES, fade, base.fade),
         layouts: subsetOf(NEBBIA_LAYOUTS, values.layouts, base.layouts),
-        behind: NEBBIA_BEHIND.find(b => b === values.behind) ?? base.behind,
+        behind,
+        // 玻璃上的水：存过就认存过的，没存过就跟窗外的配套默认（夜里是雨窗，水族箱是凝露）
+        glass: NEBBIA_GLASS.find(g => g === values.glass) ?? NEBBIA_GLASS_FOR[behind] ?? base.glass,
         // 窗外可以全关：只有没存过（旧的 tuning）才用默认
         scenery: Array.isArray(values.scenery) ? NEBBIA_SCENERY.filter(c => (values.scenery as unknown[]).includes(c)) : [...base.scenery],
         rain: NEBBIA_RAIN.find(r => r === values.rain) ?? base.rain,

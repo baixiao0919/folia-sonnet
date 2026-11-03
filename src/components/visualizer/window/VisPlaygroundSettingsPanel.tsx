@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { type Theme, type SubtitleContentMode, type SubtitleOverlayLayout, type VisualizerBackgroundMode, type VisualizerMode } from '../../../types';
 import { Button, Group, PictureGrid, Reveal, Row, Segmented, Select, Tabs, Value, type PictureState } from '../../modal/settings/kit';
+import PanelBoundary from '../../PanelBoundary';
 import type { SettingsGroupDef } from '../../modal/settings/kit';
 import { StudioColumnBody } from '../../shared/StudioWindow';
 import { percent, SliderRow, ToggleRow } from '../panelRows';
@@ -308,7 +309,9 @@ const VisPlaygroundSettingsPanel: React.FC<VisPlaygroundSettingsPanelProps> = (p
                                     onSliderCommit={onSliderCommit}
                                     onOpenSmartBeat={() => onSectionChange('global')}
                                 />
-                                {stylePanel}
+                                <PanelBoundary label={`${visualizerMode} 设置`}>
+                                    {stylePanel}
+                                </PanelBoundary>
                                 {/* Folium tunings other mods registered for this mode (registries.tunings): cards of the mods' own make. */}
                                 <div className="mt-7 space-y-4 empty:hidden">
                                     <FoliumTuningCards
@@ -352,17 +355,19 @@ const VisPlaygroundSettingsPanel: React.FC<VisPlaygroundSettingsPanelProps> = (p
                             </Group>
                             {/* The chosen background's own options. */}
                             <div key={resolvedBackgroundMode} className="st-page-in mt-7">
-                                {backgroundEntry.renderSettingsPanel?.({
-                                    config: backgroundConfig,
-                                    actions: backgroundActions,
-                                    t,
-                                    isDaylight,
-                                    theme,
-                                    controlCardBg,
-                                    rangeInputClass,
-                                    onSliderPointerDown,
-                                    onSliderCommit,
-                                })}
+                                <PanelBoundary label={`${resolvedBackgroundMode} 背景设置`}>
+                                    {backgroundEntry.renderSettingsPanel?.({
+                                        config: backgroundConfig,
+                                        actions: backgroundActions,
+                                        t,
+                                        isDaylight,
+                                        theme,
+                                        controlCardBg,
+                                        rangeInputClass,
+                                        onSliderPointerDown,
+                                        onSliderCommit,
+                                    })}
+                                </PanelBoundary>
                             </div>
                         </>
                     )}

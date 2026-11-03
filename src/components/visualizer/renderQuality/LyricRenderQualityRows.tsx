@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { useVisualizerSettingsStore } from '../../../stores/useVisualizerSettingsStore';
 import type { LyricAntialias, LyricRenderOverride, LyricRenderScale } from '../../../types';
-import { formatLyricRenderScale, LYRIC_ANTIALIAS_OVERRIDES, LYRIC_RENDER_SCALES } from '../../../utils/lyricRenderQuality';
+import { formatLyricRenderScale, LYRIC_ANTIALIAS_OVERRIDES, LYRIC_RENDER_SCALES, normalizeLyricRenderOverride, normalizeLyricRenderQuality } from '../../../utils/lyricRenderQuality';
 import { Row, Segmented, Select } from '../../modal/settings/kit';
 
 // src/components/visualizer/renderQuality/LyricRenderQualityRows.tsx
@@ -31,7 +31,10 @@ type LyricRenderQualityRowsProps = {
 
 const LyricRenderQualityRows: React.FC<LyricRenderQualityRowsProps> = ({ value, onChange, antialias = true }) => {
     const { t } = useTranslation();
-    const global = useVisualizerSettingsStore(state => state.lyricRenderQuality);
+    const stored = useVisualizerSettingsStore(state => state.lyricRenderQuality);
+    // 存档、模组、或某条样式自己漏了这个字段时都不能让整块设置面板白屏：缺什么就按「跟随全局」画。
+    const global = normalizeLyricRenderQuality(stored);
+    const override = normalizeLyricRenderOverride(value);
     const follow = t('options.lyricRenderFollowGlobal');
     return (
         <>
@@ -40,7 +43,7 @@ const LyricRenderQualityRows: React.FC<LyricRenderQualityRowsProps> = ({ value, 
                 note={t('options.lyricRenderScaleStyleHint', { value: formatLyricRenderScale(global.scale) })}
             >
                 <Select<string>
-                    value={String(value.scale)}
+                    value={String(override.scale)}
                     options={[{ value: 'global', label: follow }, ...lyricRenderScaleChoices()]}
                     onChange={next => onChange({ scale: next === 'global' ? 'global' : (LYRIC_RENDER_SCALES.find(scale => String(scale) === next) ?? 'global') as LyricRenderScale | 'global' })}
                 />
@@ -51,7 +54,7 @@ const LyricRenderQualityRows: React.FC<LyricRenderQualityRowsProps> = ({ value, 
                     note={t('options.lyricAntialiasStyleHint', { value: t(LYRIC_ANTIALIAS_LABEL_KEYS[global.antialias]) })}
                 >
                     <Segmented<LyricRenderOverride['antialias']>
-                        value={value.antialias}
+                        value={override.antialias}
                         options={LYRIC_ANTIALIAS_OVERRIDES.map(mode => ({ value: mode, label: mode === 'global' ? follow : t(LYRIC_ANTIALIAS_LABEL_KEYS[mode]) }))}
                         onChange={next => onChange({ antialias: next })}
                     />
