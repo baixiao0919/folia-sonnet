@@ -857,6 +857,12 @@ export interface OnlineMusicProvider {
     mark?: ProviderMark;
     getAvailability?(): ProviderAvailability;
     /**
+     * 原生兜底（WebView 冻结后仍能切歌 / 取流）要用到这个平台的凭据：
+     * 取流地址怎么拼、Cookie 怎么带，只有平台自己的 transport 知道。
+     * 由 omni.syncNativeGatewayCredentials 统一推给原生网关；没有这条兜底的平台不实现。
+     */
+    nativeGateway?: { syncCredentials(): void };
+    /**
      * What the provider watches for as long as the app is open (a local service of its own that
      * may fail to start), telling the listener through `tell`. Started once the app is up;
      * answers with the way to stop it. Left out where there is nothing to watch.
