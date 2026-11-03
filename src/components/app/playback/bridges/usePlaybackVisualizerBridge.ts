@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { MutableRefObject } from 'react';
-import type { MotionValue } from 'framer-motion';
 import { findLatestActiveLineIndex } from '../../../../utils/appPlaybackHelpers';
 import { PlayerState } from '../../../../types';
-import type { AudioBands, LyricData } from '../../../../types';
 import { setCurrentLineIndex, setHandoffLineIndex, setPlayerState } from '../../../../stores/usePlaybackStore';
 import { selectDisplayLyrics, usePlaybackStore } from '../../../../stores/usePlaybackStore';
+import { readLatestSpectrum } from '../../../../services/spectrumTap';
 import {
     audioBands,
     audioPower,
@@ -15,12 +14,13 @@ import {
     lyricCurrentTime,
 } from '../../../../stores/motionSignals';
 import { getTransitionHandoffProgress } from '../../../../services/automix/transitionCue';
-import { omni } from '../../../../services/onlineMusic/omni';
 import { tickBeatFx } from '../../../../services/beatFx/beatFxLive';
 import { useBeatFxTrack } from '../../../../hooks/useBeatFxTrack';
+import { nativePlaybackEngine } from '../../../../services/playbackEngine/nativePlaybackEngine';
+import { getHifiPosition } from '../../../../services/hifi/hifiPlayback';
+import { omni } from '../../../../services/onlineMusic/omni';
 import { readIncomingLyricClock } from './incomingLyricClock';
 import { isBackgroundLyricHeld, setHeldLyricTime, useBackgroundLyricHoldStore } from '../../backgroundThrottling/backgroundLyricHoldStore';
-import { getHifiPosition } from '../../../../services/hifi/hifiPlayback';
 
 // src/components/app/playback/bridges/usePlaybackVisualizerBridge.ts
 
@@ -36,7 +36,7 @@ type UsePlaybackVisualizerBridgeParams = {
     audioRef: MutableRefObject<HTMLAudioElement | null>;
     analyserRef: MutableRefObject<AnalyserNode | null>;
     animationFrameRef: MutableRefObject<number>;
-    effectiveLoopMode: 'off' | 'all' | 'one';
+    effectiveLoopMode: 'off' | 'all' | 'one' | 'shuffle';
     isNowPlayingStageActive: boolean;
     isPlayerCapStageActive: boolean;
     stageActiveEntryKind: string | null;
@@ -72,6 +72,24 @@ type UsePlaybackVisualizerBridgeParams = {
     getDisplayElement?: () => HTMLAudioElement | null;
 };
 
+/**
+ * 兜底那条路（AnalyserNode）隔多久取一次频谱。
+ *
+ * ⚠️ 只有**兜底**才用得上它：音频线程抽的那条（services/spectrumTap）拿的是人家已经算好的
+ * 一份，读它一次都不等，每一帧都能取，间隔对它不起作用。
+ *
+ * 兜底为什么不能每帧取：`getByteFrequencyData()` 的开销是**在主线程上现算一遍 FFT**（外加
+ * 一次与音频线程互踢的锁），而播放页的 rAF 每帧跑一次 updateLoop —— 等于每秒在主线程上做
+ * 六十次 2048 点 FFT，整页掉帧就是这么来的，且**所有**可视化模式一起慢（卡的是取频谱这一步，
+ * 不是某个模式的绘制）。
+ *
+ * 降到 ~30Hz：频谱本来就过了一遍 `smoothingTimeConstant`（0.6）的平滑，少一半采样看不出来，
+ * 但把这笔开销砍掉了一半以上。中间那些帧不写信号，可视化自然沿用上一帧的读数。
+ */
+const SPECTRUM_READ_INTERVAL_MS = 33;
+/** 空频谱：反复 `new Uint8Array(0)` 只会给堆添垃圾，也白唤醒一遍订阅者。 */
+const EMPTY_SPECTRUM = new Uint8Array(0);
+
 // Runs the requestAnimationFrame loop for audio-reactive visuals and lyric timing.
 export function usePlaybackVisualizerBridge({
     audioRef,
@@ -105,6 +123,8 @@ export function usePlaybackVisualizerBridge({
     const incomingLyrics = usePlaybackStore(state => state.lyrics);
 
     const currentLineIndexRef = useRef(-1);
+    // 上一帧真的去问频谱是什么时候。只为那个 ~30Hz 的降频服务（见 SPECTRUM_READ_INTERVAL_MS）。
+    const spectrumReadAtMsRef = useRef(0);
     // 智能动感模式: loads the track's beats while it is on; the clock is stepped below. A ref, so
     // switching it does not rebuild the frame loop.
     const beatFxWantedRef = useRef(false);
@@ -240,19 +260,79 @@ export function usePlaybackVisualizerBridge({
         // Normally the active deck; the outgoing one for as long as a blend holds the picture on
         // the track it is finishing, so that clock and picture never describe different songs.
         const audioElement = getDisplayElement?.() ?? audioRef.current;
-        // Never on the HiFi route, so the spectrum keeps the idle breath there: there is no analyser on mpv's output.
-        const isActuallyPlaying = !isHifiActive && Boolean(audioElement && !audioElement.paused && !audioElement.ended);
+        // 原生播放（P1）：元素是空的，它的 currentTime 恒为 0，而歌词与进度条都从下面
+        // 那个 `time` 走 —— 所以这时候改从引擎读插值后的位置。
+        //
+        // ⚠️ 判据是 `ownsPlayback`（原生手上有没有歌），**不是** `isPlaying`：
+        // 缓冲、切后台、焦点被抢都会让 isPlaying 短暂为 false，跟着它走的结果就是
+        // 「进度条和歌词时走时停、一停一冲」—— 用户说的抽搐。位置该不该前进由引擎的
+        // 插值决定（停着的时候它本来就给同一个值）。
+        const usesNativeClock = nativePlaybackEngine.ownsPlayback();
+        const nativeTime = usesNativeClock ? nativePlaybackEngine.getPositionSec() : null;
+        const isActuallyPlaying = isHifiActive
+            ? false
+            : usesNativeClock
+                ? nativePlaybackEngine.isPlaying()
+                : Boolean(audioElement && !audioElement.paused && !audioElement.ended);
         // Mid-handover a deck can be loading while the other one is still sounding. The analyser
         // is downstream of both, so it has real signal: dropping to the idle breath here would put
         // a visible stutter at exactly the moment meant to be seamless.
         const hasAudibleSignal = isActuallyPlaying || isTransitionAudible();
+        /*
+         * 频谱有两条路，能用哪条用哪条：
+         *
+         *  · **音频线程抽的那条**（services/spectrumTap）—— 拿到的是人家已经算好的一份，读它
+         *    **一次都不等音频线程**，所以每一帧都能用，不必降频；
+         *  · **AnalyserNode 那条**（兜底）—— `getByteFrequencyData` 的开销是**在主线程上现算
+         *    一遍 FFT**，一帧一次太贵，所以降到 ~30Hz（SPECTRUM_READ_INTERVAL_MS）。它跟输出
+         *    缓冲多大**没有关系**，别照着「缓冲越大等得越久」那条旧结论去调 latencyHint。
+         *
+         * 第一条接不上（没有 AudioWorklet、或 WebView 不给加载）时自动落到第二条。
+         *
+         * ⚠️ 原生出声（原生播放）时这条**没有数据**：抽头挂在 Web Audio 图上，而
+         * `createMediaElementSource` 单向不可逆 —— 图一断它就再也不会有新帧。那时
+         * `readLatestSpectrum()` 依然会返回非 null（冻住的最后一帧，通常全 0），
+         * 下游拿到的是一份趴着的频谱。原生接管时不另采数据（每秒 20 帧过桥的代价是
+         * 界面周期性卡一下），就让它趴着。
+         */
+        const tapped = readLatestSpectrum();
+        // 取成局部变量：ref 上的 .current 进不了分支条件的窄化，后面要直接用它。
+        const analyser = analyserRef.current;
+        // 只有第二条才需要这个间隔。
+        const nowMsValue = performance.now();
+        const spectrumDue = nowMsValue - spectrumReadAtMsRef.current >= SPECTRUM_READ_INTERVAL_MS;
+        const process = (value: number, boost = 2) => {
+            const normalized = value / 255;
+            return Math.pow(normalized, boost) * 255;
+        };
 
-        if (backgroundHold) {
-            // The bands keep their last values: nothing draws from them while held.
-        } else if (hasAudibleSignal && analyserRef.current) {
-            const bufferLength = analyserRef.current.frequencyBinCount;
+        // 三态，不是二态：有信号但这一帧不该读频谱时**什么都不写** —— 沿用上一次的读数。
+        // 写成 if/else 会让这些帧掉进 idle breath，律动就在真频谱和呼吸之间每帧来回跳。
+        if (!hasAudibleSignal || (!tapped && !analyser)) {
+            const time = Date.now() / 2000;
+            const breath = (Math.sin(time) + 1) * 20;
+            audioPower.set(breath);
+            audioBands.bass.set(breath);
+            audioBands.lowMid.set(breath);
+            audioBands.mid.set(breath);
+            audioBands.vocal.set(breath);
+            audioBands.treble.set(breath);
+            // 同一份空数组反复 set 没有意义，也会白唤醒订阅者。
+            audioBands.spectrum?.set(EMPTY_SPECTRUM);
+        } else if (tapped) {
+            audioBands.spectrum?.set(tapped.spectrum);
+            audioPower.set(process((tapped.bass + tapped.lowMid) / 2, 3));
+            audioBands.bass.set(process(tapped.bass, 1.8));
+            audioBands.lowMid.set(process(tapped.lowMid, 2));
+            audioBands.mid.set(process(tapped.mid, 2));
+            audioBands.vocal.set(process(tapped.vocal, 1.5));
+            audioBands.treble.set(process(tapped.treble, 2));
+        } else if (analyser && spectrumDue) {
+            // 记在真正去读之前：这次同步等待算进间隔里，缓冲大也不会把节奏挤成一帧一次。
+            spectrumReadAtMsRef.current = nowMsValue;
+            const bufferLength = analyser.frequencyBinCount;
             const dataArray = new Uint8Array(bufferLength);
-            analyserRef.current.getByteFrequencyData(dataArray);
+            analyser.getByteFrequencyData(dataArray);
             audioBands.spectrum?.set(dataArray);
 
             const getEnergy = (minHz: number, maxHz: number): number => {
@@ -272,43 +352,25 @@ export function usePlaybackVisualizerBridge({
             const vocal = getEnergy(1000, 3500);
             const treble = getEnergy(3500, 12000);
 
-            const process = (value: number, boost = 2) => {
-                const normalized = value / 255;
-                return Math.pow(normalized, boost) * 255;
-            };
-
             audioPower.set(process((bass + lowMid) / 2, 3));
             audioBands.bass.set(process(bass, 1.8));
             audioBands.lowMid.set(process(lowMid, 2));
             audioBands.mid.set(process(mid, 2));
             audioBands.vocal.set(process(vocal, 1.5));
             audioBands.treble.set(process(treble, 2));
-        } else {
-            const time = Date.now() / 2000;
-            const breath = (Math.sin(time) + 1) * 20;
-            audioPower.set(breath);
-            audioBands.bass.set(breath);
-            audioBands.lowMid.set(breath);
-            audioBands.mid.set(breath);
-            audioBands.vocal.set(breath);
-            audioBands.treble.set(breath);
-            audioBands.spectrum?.set(new Uint8Array(0));
         }
 
-        if (isHifiActive) {
-            // Every frame, paused or not: the clock stands still while mpv is paused, and a seek while
-            // paused moves it. No end handling here - mpv reports the end itself.
-            const time = getHifiPosition();
-            currentTime.set(time);
+        // 原生这一路不看 isActuallyPlaying：暂停时引擎给的是停住的位置，照样要写进去
+        // （不写的话进度条与歌词会停在「上一次还活着」的地方，等下次 events 才跳一次）。
+        // HiFi 路由（mpv 发声）同理：元素是哑的，位置只能问 mpv。
+        const clockTime = isHifiActive
+            ? getHifiPosition()
+            : usesNativeClock
+                ? (nativeTime as number)
+                : (isActuallyPlaying && audioElement ? audioElement.currentTime : null);
 
-            const effectiveLyricTime = time - displayOffsetMsRef.current / 1000;
-            showLyricTime(effectiveLyricTime);
-
-            if (lyrics) {
-                showLine(findLatestActiveLineIndex(lyrics.lines, effectiveLyricTime));
-            }
-        } else if (isActuallyPlaying && audioElement) {
-            const time = audioElement.currentTime;
+        if (clockTime !== null) {
+            const time = clockTime;
             currentTime.set(time);
 
             const effectiveLyricTime = time + lyricClipStartSec(audioElement) - displayOffsetMsRef.current / 1000;
@@ -368,8 +430,10 @@ export function usePlaybackVisualizerBridge({
             }
         }
 
-        if (beatFxWantedRef.current && !backgroundHold) {
-            tickBeatFx(isActuallyPlaying ? audioElement : null, analyserRef.current?.context);
+        if (beatFxWantedRef.current) {
+            // 原生播放时元素是空的：节拍那套补偿（beatFx）读的是元素与 AudioContext 的延迟，
+            // 这时候两边都没有意义，传 null 让它待着。
+            tickBeatFx(isActuallyPlaying && !usesNativeClock ? audioElement : null, analyserRef.current?.context);
         }
 
         // While a blend holds the picture, the active deck is the incoming track: its hand-off, clock
@@ -458,4 +522,5 @@ export function usePlaybackVisualizerBridge({
             setHeldLyricTime(null);
         };
     }, [animationFrameRef, updateLoop]);
+
 }

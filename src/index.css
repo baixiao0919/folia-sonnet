@@ -484,3 +484,30 @@ html[data-click-through='active'] body .click-through-interactive * {
     animation: none;
     opacity: 0.9;
 }
+
+/* ---------------------------------------------------------------------------------------------
+   下拉框触发器的底色（CustomSelect 的 compact 档）。
+   表面色原先写成 bg-[color-mix(in srgb, var(--text-primary) 7%, transparent)]，而 color-mix()
+   是 Chrome 111 才有的：更老的 WebView（安卓机上常见，UA 里能读到 Chrome/110）不认识这个
+   函数，整条 background-color 在计算时被作废，按钮于是露出平台默认的浅灰白底 —— 深色玻璃
+   面板上那块"高亮白块"就是它。这里先给一个不依赖 color-mix 的中性淡层，认得的环境再叠回
+   主题色混合，两边观感一致。 */
+.pn-select-trigger {
+    background-color: rgba(127, 127, 127, 0.16);
+}
+
+.pn-select-trigger:enabled:hover,
+.pn-select-trigger[aria-expanded='true'] {
+    background-color: rgba(127, 127, 127, 0.24);
+}
+
+@supports (background-color: color-mix(in srgb, currentColor 7%, transparent)) {
+    .pn-select-trigger {
+        background-color: color-mix(in srgb, var(--text-primary) 7%, transparent);
+    }
+
+    .pn-select-trigger:enabled:hover,
+    .pn-select-trigger[aria-expanded='true'] {
+        background-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
+    }
+}

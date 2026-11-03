@@ -3,12 +3,12 @@ import { useAudioOutputDevice } from '../../../hooks/useAudioOutputDevice';
 import { NATIVE_PLAYBACK_ENABLED, nativePlaybackEngine } from '../../../services/playbackEngine/nativePlaybackEngine';
 import { isNativePlayerAvailable } from '../../../services/playbackEngine/nativePlayerPlugin';
 import { useAudioSettingsStore } from '../../../stores/useAudioSettingsStore';
+import { useLyricSettingsStore } from '../../../stores/useLyricSettingsStore';
 import { LyricData, StageLoopMode } from '../../../types';
 import { clampMediaVolume } from '../../../utils/appPlaybackHelpers';
 import { createCoverUrlResolver } from '../../../utils/coverUrlResolver';
 import { writeLyricOffset } from '../../../utils/lyrics/lyricOffsetMemory';
 import { createLyricsSetter } from '../playback/createLyricsSetter';
-import { useLyricSettingsStore } from '../../../stores/useLyricSettingsStore';
 import { persistPlaybackCache } from '../playback/persistPlaybackCache';
 import { createOnlineRecoveryController } from '../playback/restore/createOnlineRecoveryController';
 import { useRef, useEffect, useCallback, useMemo } from 'react';
@@ -30,7 +30,8 @@ export const useAppAudioOutput = (model: Input) => {
         onlinePlaybackRecoveryRef, pendingResumeTimeRef, pendingVolumePreviewRef, setAudioSrc, setCurrentSong,
         setLyricTimelineOffsetMs, setLyricsState, setPlayQueue, shouldAutoPlay, volume, volumePreviewFrameRef
     } = model;
-    // 歌词行规则由 store 持有（PR 起过滤从单条 pattern 换成规则数组），setter 每次按最新规则重编。
+    // 过滤规则是 PR#975 的形状（`LyricLineRule[]`，不是旧的单条正则字符串）：
+    // createLyricsSetter 会对它做 compileLyricLineRules，传字符串进去会在第一帧就抛。
     const lyricLineRules = useLyricSettingsStore(state => state.lyricLineRules);
     const setLyrics = useMemo(
         () => createLyricsSetter(setLyricsState, lyricLineRules, currentSongFullRef, {

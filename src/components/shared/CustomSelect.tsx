@@ -234,7 +234,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     // 调用方接管底色与描边时不再写 borderColor：它的 style 可能用 border 简写，混用会被 React 警告。
     const callerOwnsSurface = triggerClassName !== undefined || triggerStyle !== undefined;
     const triggerClass = compact
-        ? `flex h-8 w-full cursor-pointer items-center justify-between gap-2 rounded-lg pl-3 pr-2 text-[13px] ${reducedMotion ? '' : 'transition-colors '}focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 ${isOpen ? 'bg-[color-mix(in_srgb,var(--text-primary)_12%,transparent)]' : 'bg-[color-mix(in_srgb,var(--text-primary)_7%,transparent)] enabled:hover:bg-[color-mix(in_srgb,var(--text-primary)_12%,transparent)]'}`
+        ? `pn-select-trigger flex h-8 w-full cursor-pointer items-center justify-between gap-2 rounded-lg pl-3 pr-2 text-[13px] ${reducedMotion ? '' : 'transition-colors '}focus:outline-none disabled:cursor-not-allowed disabled:opacity-40`
         : `${TRIGGER_BASE_CLASS} ${reducedMotion ? '' : 'transition-all '}${TRIGGER_SIZE_CLASS[size]}${triggerClassName ? ` ${triggerClassName}` : ''}`;
     const triggerInlineStyle: React.CSSProperties = compact
         ? { color: 'var(--text-primary)' }
