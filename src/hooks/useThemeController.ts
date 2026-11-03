@@ -329,15 +329,8 @@ export function useThemeController({
                 }
             }
 
-            // 「默认」不参与旧版主题的配色：切回默认必须真的回到默认主题（只换背景不算回去）。
-            if (bgMode === 'ai' && legacyTheme) {
-                const baseTheme = getBaseTheme();
-                return normalizeTheme({
-                    ...legacyTheme,
-                    backgroundColor: baseTheme.backgroundColor,
-                });
-            }
-
+            // The default source is the built-in theme itself: an AI or legacy theme stays loaded so the
+            // user can switch back to it, but lends none of its colors here (#947).
             return normalizeTheme(resolveBgModeTheme({
                 mode: bgMode === 'custom' ? 'default' : bgMode,
                 aiTheme,

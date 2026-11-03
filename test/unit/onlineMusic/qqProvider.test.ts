@@ -302,7 +302,7 @@ describe('qqProvider', () => {
         expect(normalizeQqCollection({ dissid: 9, dirId: 201, name: '别人的我喜欢', songnum: 1 }).isLiked).toBeUndefined();
     });
 
-    it('账号缓存往返之后，自建歌单的版本时间仍是毫秒', () => {
+    it('keeps the owned playlist update time in milliseconds across account cache hydration', () => {
         const collection = normalizeQqCollection({ ...PLAYLIST_ITEM, updateTime: 1792948021 });
         expect(collection.updatedAt).toBe(1792948021000);
         expect(normalizeQqCollection(collection)).toEqual(collection);
@@ -312,7 +312,7 @@ describe('qqProvider', () => {
             .toBe(1792948025000);
     });
 
-    it('空的「我喜欢」与收藏排序时间都不当集合版本', () => {
+    it('does not treat an empty liked folder or a favourite ordering time as a collection version', () => {
         expect(normalizeQqCollection({ ...PLAYLIST_ITEM, songNum: 0, updateTime: 1792948021 }).updatedAt).toBeUndefined();
         expect(normalizeQqCollection({ ...PLAYLIST_ITEM, songNum: 0, updatedAt: 1792948021000 }).updatedAt).toBeUndefined();
         expect(normalizeQqCollection({ tid: 9, name: '收藏歌单', songnum: 3, orderTime: 1792948021 }).updatedAt).toBeUndefined();

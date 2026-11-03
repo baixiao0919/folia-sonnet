@@ -430,19 +430,23 @@ const decompressSonnet = (o: any): any => ({
     postProcessLensDispersion: o.pplx !== undefined ? o.pplx : DEFAULT_SONNET_TUNING.postProcessLensDispersion,
 });
 
-// 智能动感模式 is one setting for every visualizer, not a Sonnet tuning, so it has its own key. Each
-// effect's setting is `[on ? 1 : 0, strength]`; a config from before effects had their own carries
-// the shared 轻拍 / 重拍 pair (`bi` / `dbi`), passed on for the store to fold (resolveSmartBeatSettings).
+// 智能动感模式 is one setting for every visualizer, not a Sonnet tuning, so it has its own key. Its
+// mode is `md` ('off' | 'cached' | 'on'); `on` is the one switch a build before the modes reads
+// (toStoredSmartBeat), and a config from such a build has only it. Each effect's setting is
+// `[on ? 1 : 0, strength]`, with its part strengths after for an effect that has them
+// (`[on, strength, { part: strength }]`); a config from before effects had their own carries the shared
+// 轻拍 / 重拍 pair (`bi` / `dbi`). Both legacy forms are passed on for the store to fold
+// (resolveSmartBeatSettings).
 const compressSmartBeat = (t: any): any => ({
     ...(t.mode !== undefined ? { md: t.mode } : {}),
     on: t.enabled ?? t.mode === 'on',
-    ef: Object.fromEntries(Object.entries(t.effects ?? {}).map(([id, e]: [string, any]) => [id, [e.on ? 1 : 0, e.strength]])),
+    ef: Object.fromEntries(Object.entries(t.effects ?? {}).map(([id, e]: [string, any]) => [id, e.parts ? [e.on ? 1 : 0, e.strength, e.parts] : [e.on ? 1 : 0, e.strength]])),
 });
 const decompressSmartBeat = (o: any): any => ({
     ...(o.md !== undefined ? { mode: o.md } : {}),
     enabled: o.on !== undefined ? o.on : DEFAULT_SMART_BEAT_SETTINGS.mode === 'on',
     ...(o.ef && typeof o.ef === 'object'
-        ? { effects: Object.fromEntries(Object.entries(o.ef).map(([id, e]: [string, any]) => [id, Array.isArray(e) ? { on: e[0] === 1, strength: e[1] } : e])) }
+        ? { effects: Object.fromEntries(Object.entries(o.ef).map(([id, e]: [string, any]) => [id, Array.isArray(e) ? { on: e[0] === 1, strength: e[1], ...(e[2] && typeof e[2] === 'object' ? { parts: e[2] } : {}) } : e])) }
         : {}),
     ...(o.bi !== undefined ? { beatIntensity: o.bi } : {}),
     ...(o.dbi !== undefined ? { downbeatIntensity: o.dbi } : {}),
@@ -595,6 +599,8 @@ export const compressConfig = (config: any): string => {
     if (config.smartBeat) minified.smb = compressSmartBeat(config.smartBeat);
     if (config.temperaTuning) minified.tmp = compressTempera(config.temperaTuning);
     if (config.lumiereTuning) minified.lmt = compressLumiere(config.lumiereTuning);
+    // 流体玻璃的三个参数是一组小对象，原样塞进去比再压一轮划算。
+    if (config.liquidGlass) minified.lgt = config.liquidGlass;
     // Folium param values are already plain JSON keyed by scope; stored as-is.
     if (config.foliumParams) minified.fp = config.foliumParams;
     if (config.urlBackgroundList) minified.ubl = config.urlBackgroundList;
@@ -685,6 +691,8 @@ export const decompressConfig = (str: string): any => {
         || parsed.lwbl !== undefined
         || parsed.lwbb !== undefined
         || parsed.lwsd !== undefined
+        // 流体玻璃只有自己一组时，也要认成短码形态。
+        || parsed.lgt !== undefined
         || parsed.phb !== undefined;
     if (isMinified) {
         const decompressed: any = {};
@@ -746,6 +754,7 @@ export const decompressConfig = (str: string): any => {
         if (parsed.smb) decompressed.smartBeat = decompressSmartBeat(parsed.smb);
         if (parsed.tmp) decompressed.temperaTuning = decompressTempera(parsed.tmp);
         if (parsed.lmt) decompressed.lumiereTuning = decompressLumiere(parsed.lmt);
+        if (parsed.lgt) decompressed.liquidGlass = parsed.lgt;
         if (parsed.fp) decompressed.foliumParams = parsed.fp;
         if (parsed.ubl) decompressed.urlBackgroundList = parsed.ubl;
         if (parsed.ubid) decompressed.urlBackgroundSelectedId = parsed.ubid;
@@ -764,15 +773,6 @@ export const decompressConfig = (str: string): any => {
         if (parsed.lwbb !== undefined) decompressed.libraryWallBackdropBlur = parsed.lwbb;
         if (parsed.lwsd !== undefined) decompressed.libraryWallSeamDirection = parsed.lwsd;
         if (parsed.phb !== undefined) decompressed.playerHeaderBlur = parsed.phb;
-        /*
-         * lwdr：旧的反向开关（只翻「自动」那一支）。它已经并进方向取值成为 'auto-reverse'，所以不再原样带出来，
-         * 只在旧配置的「自动 + 反向」这一组合上折算一次：lwsd 是 'auto'（或没写，那时旧版默认就是自动）而
-         * lwdr 不是 false 时，方向记成 'auto-reverse'。旧配置导入后的观感与导出它时一致，不会因为少了个键
-         * 就突然翻回「自动」。
-         */
-        if (parsed.lwdr !== undefined && parsed.lwdr !== false) {
-            if (parsed.lwsd === undefined || parsed.lwsd === 'auto') decompressed.libraryWallSeamDirection = 'auto-reverse';
-        }
 
         return decompressed;
     } else {
@@ -796,11 +796,8 @@ export const decompressConfig = (str: string): any => {
             'libraryWallStackEdges',
             'libraryWallSeamClear', 'libraryWallSeamStyle', 'libraryWallBackdropLyrics', 'libraryWallBackdropBlur',
             'libraryWallSeamDirection',
+            'liquidGlass',
             'playerHeaderBlur',
-            // 旧的反向开关（已并进 libraryWallSeamDirection 的 'auto-reverse'）。留着这一格只为一件事：
-            // 只带 lwdr 的旧 JSON 配置仍算「认得的外观配置」，不至于整份被当成非法。取值本身由
-            // visualConfigTransfer 折算，别的地方不要读它。
-            'libraryWallSeamDirectionReverse',
         ];
         const hasValidKey = validKeys.some(k => parsed[k] !== undefined);
         if (!hasValidKey) {
@@ -808,6 +805,9 @@ export const decompressConfig = (str: string): any => {
         }
         if (parsed.randomVisualizerModes !== undefined) {
             parsed.randomVisualizerModes = normalizeRandomVisualizerModes(parsed.randomVisualizerModes);
+        }
+        if (parsed.stageTrackPillPosition !== undefined) {
+            parsed.stageTrackPillPosition = normalizeNowPlayingCardPosition(parsed.stageTrackPillPosition);
         }
         return parsed;
     }

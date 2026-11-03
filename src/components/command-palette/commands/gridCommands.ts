@@ -1,4 +1,4 @@
-import { ArrowDownUp, CalendarClock, Clock, FolderSync, Heart, ImagePlus, ListMusic, ListOrdered, PanelLeft, PanelRight, Pencil, Play, RefreshCw, Share, SquarePen, Star, Tags, Type, User } from 'lucide-react';
+import { ArrowDownUp, CalendarClock, FolderSync, ImagePlus, ListOrdered, PanelLeft, PanelRight, Pencil, RefreshCw, Share, SquarePen, Star, Tags, Type } from 'lucide-react';
 import { createGridSurfaceCommand } from '../commandFactories';
 import type { CommandPaletteCommand } from '../types';
 

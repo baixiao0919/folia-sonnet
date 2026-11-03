@@ -40,7 +40,9 @@ export const PanelIconButton = React.forwardRef<HTMLButtonElement, PanelIconButt
     ...button
 }, ref) => (
     <Tooltip text={label} className={`inline-flex shrink-0${className ? ` ${className}` : ''}`}>
-        <Button
+        <button
+            type="button"
+            data-glass
             {...button}
             ref={ref}
             aria-label={label}

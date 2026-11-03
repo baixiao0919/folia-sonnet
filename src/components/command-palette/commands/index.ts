@@ -8,6 +8,7 @@ import { searchCommands } from './searchCommands';
 import { archiveCommands } from './archiveCommands';
 import { playbackCommands } from './playbackCommands';
 import { settingsCommands } from './settingsCommands';
+import { hifiCommands } from './hifiCommands';
 import { navigationCommands } from './navigationCommands';
 import { panelCommands } from './panelCommands';
 import { modsCommands } from './modsCommands';
@@ -86,6 +87,7 @@ export const ALL_COMMAND_PALETTE_COMMANDS: CommandPaletteCommand[] = assertExecu
     ...archiveCommands,
     ...playbackCommands,
     ...settingsCommands,
+    ...hifiCommands,
     ...navigationCommands,
     ...panelCommands,
     ...modsCommands,

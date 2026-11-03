@@ -181,6 +181,7 @@ export function WallToolsQueueIsland({ id, host, trailsPanel = false }: { id: st
 
     const labels = useMemo<QueueIslandRowProps['labels']>(() => ({
         unavailable: t('status.songUnavailableTag'),
+        video: t('status.songVideoTag'),
         playNext: t('queue.playNext'),
         moveToEnd: t('queue.moveToEnd'),
         remove: t('queue.remove'),
@@ -248,6 +249,7 @@ export function WallToolsQueueIsland({ id, host, trailsPanel = false }: { id: st
 
     return (
         <motion.section
+            data-glass
             id={id}
             role="region"
             aria-label={t('wallTools.queueIsland')}

@@ -97,58 +97,10 @@ __pycache__/
 
 # Built by build/buildPythonRuntime.mjs - binary artifacts that live on the mirrors, not in git.
 dist-runtime/
-keystore.properties
-*.jks
-*.keystore
 
-# ---- 本机产物与本地状态（不进仓库）----
-# 出包脚本的产物（build-apk.sh 每次都会重写，进仓库只会让 diff 永远脏）。
-*.apk
-*.aab
-# Gradle 用户目录：build-apk.sh 可能在 android/ 下留一份缓存，几百 MB。
-android/.gradle-home*/
-.gradle-home*/
-# 本地登录态（QQ 设备授权等）。
-.auth-state/
-# WorkBuddy 在本项目的工作数据（会话记忆、一次性脚本产物）。
-.workbuddy/
-# 仓库内的一次性校验脚本（悬空 import 检查等），只在本机跑，不必进仓库。
-.tools/
+# 雾笺的笔顺数据（AnimCJK，Arphic Public License）不进仓库：构建时由 dev/nebbia/nebbiaStrokesPlugin.mjs 生成。
+# 旧做法手动放在 public/ 下的这份也不提交：插件生成的那份会盖住它，插件没生成时它不附授权文本
+public/nebbia-strokes.json
 
-# ---- 本机开发产物 ----
-# test/render/preview.mjs 的截图与本机布局自检报告，不进仓库。
-preview/
-# 上面这条按目录名忽略，会顺带吃掉源码里的 preview 目录（src/components/visualizer/preview/，
-# 是预览时钟与实时内容那些模块）。只放行源码下的那一处，别的地方照旧忽略。
-!/src/**/preview/
-# 单测覆盖率与 Playwright 的默认输出目录。
-coverage/
-playwright-report/
-blob-report/
-# tsc 增量编译缓存。
-*.tsbuildinfo
-# Vite 的依赖预构建缓存（不总是落在 node_modules 下）。
-.vite/
-
-# ---- Android / Gradle 本地产物 ----
-# Gradle 用户目录与根工程的构建输出；android/app/.gitignore 只管 app 模块。
-android/.gradle/
-android/build/
-android/local.properties
-android/captures/
-android/.cxx/
-# Capacitor sync 每次重写的 Web 资源与插件清单。
-android/app/src/main/assets/public/
-android/app/src/main/assets/capacitor.config.json
-android/app/src/main/assets/capacitor.plugins.json
-
-# ---- 本地配置与环境变量 ----
-# 只提交示例文件，其余 .env* 都是本机配置（含密钥）。
-.env
-.env.*
-!.env.example
-# git-filter-branch 的工作目录，历史重写留下的临时状态。
-.git-rewrite/
-# AI 工具的本地规则与状态：规则只有 AGENTS.md 一份，工具各自的配置不再进仓库。
-.gemini/
-.claude/settings.local.json
+# 忽略补丁
+patch/

@@ -25,7 +25,7 @@ import {
 
 // src/library/core/collection/resource/onlineCollectionResource.service.ts
 // 在线集合资源：读缓存 → 取首页 → 后台补页，以及详情、重新加载、续传。逻辑搬自 GridView 的
-// loadTracks / fetchRemainingTracks，判定规则不变；不同的是请求归属在资源上，而不是某个网格实例上：
+// loadTracks / fetchRemainingTracks；无版本歌单与专辑另有短时内存复用，请求归属在资源上，而不是某个网格实例上：
 // - 每个异步步骤都比对代数，资源被重新加载、暂停或销毁后，晚到的结果既不提交也不写缓存；
 // - 删除过的歌记成墓碑，后续分页不会把它带回来。集合给每一行起了名字时（collectionRowId，YouTube Music 的歌单）
 //   按行记：同一首歌的两行是两行，删掉的只是那一行。

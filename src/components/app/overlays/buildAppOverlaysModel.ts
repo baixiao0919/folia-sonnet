@@ -92,6 +92,7 @@ export type AppOverlaysDeps = {
     handleSearchResultAddToQueue: (track: UnifiedSong) => void;
     handleSearchResultArtistOpen: SearchOverlayProps['onOpenArtist'];
     handleSearchResultAlbumOpen: SearchOverlayProps['onOpenAlbum'];
+    handleSearchResultCollectionOpen: SearchOverlayProps['onOpenCollection'];
     /** 搜索结果按当前本地曲库目录重算展示（见 SearchWorkspace 的同名 prop）。 */
     resolveSearchResultDisplay: NonNullable<SearchOverlayProps['resolveTrackDisplay']>;
     devDebugSnapshot: any;
@@ -142,6 +143,7 @@ export const buildAppOverlaysModel = ({
     handleSearchResultAddToQueue,
     handleSearchResultArtistOpen,
     handleSearchResultAlbumOpen,
+    handleSearchResultCollectionOpen,
     resolveSearchResultDisplay,
     isDevDebugOverlayVisible,
     isMemoryMonitorVisible,
@@ -232,6 +234,7 @@ export const buildAppOverlaysModel = ({
             onAddTrackToQueue: handleSearchResultAddToQueue,
             onOpenArtist: handleSearchResultArtistOpen,
             onOpenAlbum: handleSearchResultAlbumOpen,
+            onOpenCollection: handleSearchResultCollectionOpen,
             resolveTrackDisplay: resolveSearchResultDisplay,
         }
         : null,

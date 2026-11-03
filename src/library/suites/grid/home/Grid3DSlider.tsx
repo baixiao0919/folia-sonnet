@@ -4,39 +4,221 @@ import { useHomeLayoutSettingsStore } from '../../../../stores/useHomeLayoutSett
 import { useReducedMotionFor } from '../../../../hooks/useReducedMotionFor';
 import { useCompactUiScale } from '../../../../hooks/useCompactUiScale';
 import { hasBlockingWindow } from '../../../../utils/keyboardTargets';
-import { Grid3DSliderCard } from './Grid3DSliderCard';
-import {
-    DISCRETE_WHEEL_DISTANCE_MULTIPLIER,
-    GRID3D_CARD_GAP,
-    GRID3D_COMPACT_CAPTION_PX,
-    GRID3D_COMPACT_CARD_RATIO,
-    GRID3D_COMPACT_MIN_COVER_PX,
-    GRID3D_COMPACT_PEAK_SCALE,
-    GRID3D_COMPACT_SCROLLER_PAD_PX,
-    PROGRAMMATIC_SCROLL_IDLE_TIMEOUT_MS,
-    PROGRAMMATIC_SCROLL_SETTLE_PX,
-    PROGRAMMATIC_SCROLL_TIMEOUT_MS,
-    WHEEL_SMOOTHING_MAX_DURATION_MS,
-    WHEEL_SMOOTHING_MIN_PROGRESS,
-    WHEEL_SMOOTHING_SETTLE_DISTANCE,
-    clampFocusedIndex,
-    getGrid3DItemsSignature,
-    getGrid3DSliderDisplayName,
-    getGrid3DSliderSecondaryText,
-    getGrid3DTargetScrollLeft,
-    getGrid3DWindowRange,
-    resolveGrid3DLeapPlan,
-    resolveGrid3DTransitionMode,
-    resolveGrid3DWheelInput,
-    type Grid3DSliderProps,
-} from './grid3DSliderModel';
+import { CARD_TITLE_ATTR, MORPH_FRAME_ATTR } from '../transitions/gridMorphContract';
+import { LoadingRing } from '@/components/shared/LoadingRing';
 
 // src/library/suites/grid/home/Grid3DSlider.tsx
 // Controlled desktop Grid3D slider shared by Netease, local music, and Navidrome overview surfaces.
-//
-// 纯函数与显示文案在 grid3DSliderModel，卡片在 Grid3DSliderCard；这里只剩滚动、焦点与底部字幕。
-// 对外导出保持原路径：DesktopGrid3DSurface 与 test/unit/gridView/grid3DSlider.test 都从这里引。
-export * from './grid3DSliderModel';
+
+export interface Grid3DSliderItem {
+    id: string | number;
+    name: React.ReactNode;
+    coverUrl?: string;
+    description?: string;
+    summary?: string;
+    trackCount?: number;
+    trackIds?: string[];
+    type?: string;
+    isVirtual?: boolean;
+}
+
+interface Grid3DSliderProps {
+    items: Grid3DSliderItem[];
+    focusedIndex: number;
+    onFocusedIndexChange: (index: number) => void;
+    onSelect: (item: Grid3DSliderItem, index: number) => void;
+    isInteractive?: boolean;
+    isLoading?: boolean;
+    emptyMessage?: string;
+    isDaylight: boolean;
+    hasFloatingPlayer?: boolean;
+}
+
+const compactDescription = (description?: string, maxLength = 72) => {
+    if (!description) return '';
+    const normalized = description.replace(/\s+/g, ' ').trim();
+    return normalized.length > maxLength ? `${normalized.substring(0, maxLength)}...` : normalized;
+};
+
+type Grid3DSliderTextItem = Pick<Grid3DSliderItem, 'type' | 'description' | 'summary'>
+    & Partial<Pick<Grid3DSliderItem, 'name' | 'isVirtual'>>;
+
+// 文件夹卡片的第二行 / 信息行显示文件夹路径（= 名称）。虚拟的「全部歌曲」没有真实路径，但同一个位置照样
+// 显示它的名称（「All Songs / 全部歌曲」），不退回描述「Folder / 本地」：这是一直以来的可见文字，
+// test/ui 的 local-library 截图基线锁着它。isVirtual 只用于语义判断（批量删除不按文件夹删它）。
+const getLocalFolderPath = (item: Grid3DSliderTextItem): string => (
+    item.type === 'folder' && typeof item.name === 'string'
+        ? item.name
+        : ''
+);
+
+export const getGrid3DSliderDisplayName = (
+    item: Pick<Grid3DSliderItem, 'name' | 'type' | 'isVirtual'>,
+): React.ReactNode => {
+    const folderPath = getLocalFolderPath(item);
+    return folderPath ? formatGridMapFolderTitle(folderPath) : item.name;
+};
+
+export const getGrid3DSliderSecondaryText = (
+    item: Grid3DSliderTextItem,
+): string => (
+    getLocalFolderPath(item)
+        || (item.type === 'playlist'
+        ? compactDescription(item.summary) || compactDescription(item.description)
+        : compactDescription(item.description) || compactDescription(item.summary))
+);
+
+export const getGrid3DSliderSummaryText = (
+    item: Pick<Grid3DSliderItem, 'type' | 'description' | 'summary'>,
+): string => {
+    const summary = compactDescription(item.summary);
+    return summary && summary !== getGrid3DSliderSecondaryText(item) ? summary : '';
+};
+
+const DISCRETE_WHEEL_PIXEL_THRESHOLD = 40;
+const DISCRETE_WHEEL_DISTANCE_MULTIPLIER = 3;
+const GRID3D_CARD_GAP = 48;
+// 倒影露出的一段高度（px）：紧贴卡片底边，并在这一段里淡完，所以不会被滚动容器裁出硬边。
+// 聚焦卡是放大过的（scale 1.2），它底边往下多出来的那截也算在可见高度里，48px 仍然够用。
+const GRID3D_REFLECTION_BAND_PX = 48;
+export const GRID3D_WINDOW_RADIUS = 18;
+export const GRID3D_LEAP_CARDS = 4;
+// 实际挂到 DOM 的卡片窗口半径（渲染量）按视口自适应，与 GRID3D_WINDOW_RADIUS（过渡阈值，决定「直接滚动
+// 还是跳跃」）解耦：一屏能看到的张数的一半再加一点缓冲，滑动时前方几张已经就绪，不必常驻焦点两侧各 18 张。
+const MIN_RENDER_WINDOW_RADIUS = 6;
+const RENDER_WINDOW_BUFFER = 3;
+const PROGRAMMATIC_SCROLL_SETTLE_PX = 3;
+const PROGRAMMATIC_SCROLL_TIMEOUT_MS = 600;
+const PROGRAMMATIC_SCROLL_IDLE_TIMEOUT_MS = 250;
+const WHEEL_SMOOTHING_SETTLE_DISTANCE = 0.5;
+const WHEEL_SMOOTHING_MIN_PROGRESS = 0.01;
+const WHEEL_SMOOTHING_MAX_DURATION_MS = 800;
+
+export interface Grid3DWheelInput {
+    delta: number;
+    isDiscreteMouseWheel: boolean;
+}
+
+// Normalizes browser wheel units while keeping high-frequency trackpad input on the direct-scroll path.
+export const resolveGrid3DWheelInput = (
+    deltaX: number,
+    deltaY: number,
+    deltaMode: number,
+    pageSize: number,
+): Grid3DWheelInput => {
+    const rawDelta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
+    const unitScale = deltaMode === 1
+        ? 32
+        : deltaMode === 2
+            ? Math.max(pageSize, 1)
+            : 1;
+
+    return {
+        delta: rawDelta * unitScale,
+        isDiscreteMouseWheel: deltaMode !== 0 || Math.abs(rawDelta) >= DISCRETE_WHEEL_PIXEL_THRESHOLD,
+    };
+};
+
+/**
+ * Serializes item IDs safely to prevent collision when IDs contain commas (e.g. folder paths).
+ */
+export const getGrid3DItemsSignature = (items: { id: string | number }[]): string =>
+    JSON.stringify(items.map(item => String(item.id)));
+
+/**
+ * Calculates clamped target scrollLeft to center the card at the given index.
+ */
+export const getGrid3DTargetScrollLeft = (
+    index: number,
+    containerWidth: number,
+    scrollWidth: number,
+    cardPitch: number,
+    coverSize: number,
+    edgePadding: number,
+): number => {
+    const maxScrollLeft = Math.max(0, scrollWidth - containerWidth);
+    const rawTarget = edgePadding + index * cardPitch + coverSize / 2 - containerWidth / 2;
+    return Math.max(0, Math.min(maxScrollLeft, rawTarget));
+};
+
+/**
+ * Identifies the layout the cached card centers were measured in. The card count alone is not
+ * enough: `coverSize` and `edgePadding` move every card whenever a container breakpoint flips or
+ * the floating player appears, and neither changes the count.
+ */
+export const getGrid3DCardGeometryKey = (
+    cardCount: number,
+    viewportWidth: number,
+    firstCardWidth: number,
+    firstCardOffsetLeft: number,
+): string => `${cardCount}:${viewportWidth}:${firstCardWidth}:${firstCardOffsetLeft}`;
+
+const clampFocusedIndex = (index: number, itemCount: number) => {
+    if (itemCount <= 0 || !Number.isFinite(index)) {
+        return 0;
+    }
+
+    return Math.min(Math.max(0, Math.trunc(index)), itemCount - 1);
+};
+
+export const getGrid3DWindowRange = (
+    focusedIndex: number,
+    itemCount: number,
+    radius = GRID3D_WINDOW_RADIUS,
+): { start: number; end: number } => {
+    const safeIndex = clampFocusedIndex(focusedIndex, itemCount);
+    return {
+        start: Math.max(0, safeIndex - radius),
+        end: Math.min(itemCount, safeIndex + radius + 1),
+    };
+};
+
+export type Grid3DTransitionMode = 'none' | 'direct' | 'leap';
+
+/**
+ * Resolves the transition mode for external focus changes:
+ * - 'none': Immediate jump (list change, same index, or reduced motion).
+ * - 'direct': Continuous smooth scroll within the rendered window radius.
+ * - 'leap': Distant jump that stages cards near the destination before smoothly gliding in.
+ */
+export const resolveGrid3DTransitionMode = ({
+    isListChanged,
+    prevIndex,
+    nextIndex,
+    reduceMicroMotion = false,
+}: {
+    isListChanged: boolean;
+    prevIndex: number;
+    nextIndex: number;
+    reduceMicroMotion?: boolean;
+}): Grid3DTransitionMode => {
+    if (reduceMicroMotion || isListChanged || prevIndex === nextIndex) {
+        return 'none';
+    }
+    if (Math.abs(nextIndex - prevIndex) <= GRID3D_WINDOW_RADIUS) {
+        return 'direct';
+    }
+    return 'leap';
+};
+
+/**
+ * Resolves staging index and scroll direction for leap transitions.
+ */
+export const resolveGrid3DLeapPlan = ({
+    prevIndex,
+    nextIndex,
+    itemCount,
+    leapCards = GRID3D_LEAP_CARDS,
+}: {
+    prevIndex: number;
+    nextIndex: number;
+    itemCount: number;
+    leapCards?: number;
+}): { direction: number; stagingIndex: number } => {
+    const direction = Math.sign(nextIndex - prevIndex);
+    const stagingIndex = clampFocusedIndex(nextIndex - direction * leapCards, itemCount);
+    return { direction, stagingIndex };
+};
 
 export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
     items,
@@ -169,17 +351,36 @@ export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
     const safeFocusedIndex = clampFocusedIndex(focusedIndex, items.length);
     const itemsSignature = useMemo(() => getGrid3DItemsSignature(items), [items]);
 
-    const loadedIndices = useMemo(() => {
-        const indexes = new Set<number>();
-        const start = Math.max(0, safeFocusedIndex - 12);
-        const end = Math.min(items.length - 1, safeFocusedIndex + 12);
-        for (let index = start; index <= end; index += 1) indexes.add(index);
-        return indexes;
-    }, [items.length, safeFocusedIndex]);
-
-    const { start: windowStart, end: windowEnd } = getGrid3DWindowRange(safeFocusedIndex, items.length);
-    const windowedItems = items.slice(windowStart, windowEnd);
     const cardPitch = coverSize + GRID3D_CARD_GAP;
+
+    // 渲染窗口按视口自适应：visibleCardCount 是一屏大致能看到的张数，半径取它的一半再留一点缓冲。
+    const visibleCardCount = containerSize.width > 0
+        ? Math.ceil(containerSize.width / cardPitch) + 1
+        : GRID3D_WINDOW_RADIUS * 2 + 1;
+    const renderWindowRadius = containerSize.width > 0
+        ? Math.max(MIN_RENDER_WINDOW_RADIUS, Math.ceil(visibleCardCount / 2) + RENDER_WINDOW_BUFFER)
+        : GRID3D_WINDOW_RADIUS;
+
+    // 挂到 DOM 的只有 windowedItems（窗口已经就是「焦点 / 旧焦点 / 视口」的并集），封面没有理由再按
+    // 焦点 ±N 另收一道口子：窗口一旦落在焦点半径之外（切页、跳跃过渡的并集），那些卡片就会只显示占位、
+    // 加载不出封面。窗口有多大就认多大的范围，见下面 windowStart/windowEnd。
+
+    // 当前视口实际盖住的索引范围，由滚动时（updateCardTransforms）算出。窗口和它取并集，是因为焦点与
+    // 滚动位置在挂载、切页、快速甩动时会短暂不一致：只看焦点，真实可见的卡片就会落在窗口外、整片闪空白。
+    // 带上 itemsSignature：列表换了（同页内不是重挂、只是 props 变）时旧的滚动范围对新列表无意义，直接丢弃。
+    const [viewportRange, setViewportRange] = useState<{ signature: string; start: number; end: number } | null>(null);
+    const activeViewportRange = viewportRange && viewportRange.signature === itemsSignature ? viewportRange : null;
+
+    // 焦点切换时窗口要同时盖住「旧焦点卡」到「新焦点卡」的整段：否则程序化平滑滚动经过的中间卡不在窗口里，
+    // 会闪现空位。prevFocusedIndexRef 在 effect 里才更新，所以本帧渲染读到的仍是上一张焦点卡。
+    const focusRange = getGrid3DWindowRange(safeFocusedIndex, items.length, renderWindowRadius);
+    const prevFocusIndex = prevFocusedIndexRef.current;
+    const previousFocusRange = prevFocusIndex === safeFocusedIndex
+        ? focusRange
+        : getGrid3DWindowRange(prevFocusIndex, items.length, renderWindowRadius);
+    const windowStart = Math.min(focusRange.start, previousFocusRange.start, activeViewportRange?.start ?? Number.POSITIVE_INFINITY);
+    const windowEnd = Math.max(focusRange.end, previousFocusRange.end, activeViewportRange?.end ?? 0);
+    const windowedItems = items.slice(windowStart, windowEnd);
     const leadingSpacerWidth = windowStart * cardPitch;
     const remainingItemCount = items.length - windowEnd;
     const trailingSpacerWidth = remainingItemCount > 0
@@ -198,6 +399,15 @@ export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
             Math.round((containerCenter - edgePadding - coverSize / 2) / cardPitch),
             items.length,
         );
+
+        // 记下视口当前覆盖的卡片范围（两端各留一点缓冲），渲染窗口与它取并集，保证可见的卡片一定挂上。
+        const viewportStart = Math.max(0, Math.floor((container.scrollLeft - edgePadding) / cardPitch) - RENDER_WINDOW_BUFFER);
+        const viewportEnd = Math.min(items.length, Math.ceil((container.scrollLeft + viewportWidth - edgePadding) / cardPitch) + RENDER_WINDOW_BUFFER);
+        setViewportRange(prev => (
+            prev && prev.signature === itemsSignature && prev.start === viewportStart && prev.end === viewportEnd
+                ? prev
+                : { signature: itemsSignature, start: viewportStart, end: viewportEnd }
+        ));
         for (let i = 0; i < cards.length; i++) {
             const el = cards[i];
             const itemIndex = Number(el.dataset.grid3dIndex);
@@ -206,17 +416,15 @@ export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
             const tValue = Math.min(pixelDist / maxDist, 1);
 
             const scale = peakScale - (peakScale - minScale) * tValue;
-            const opacity = Math.max(0.15, 1.0 - 0.85 * tValue);
             const y = -6 * (1 - tValue);
             const z = Math.max(1, Math.round(10 - 9 * tValue));
 
             el.style.transform = `scale(${scale}) translateY(${y}px)`;
-            el.style.opacity = String(opacity);
             el.style.zIndex = String(z);
         }
 
         return closestIndex;
-    }, [cardPitch, coverSize, edgePadding, items.length, peakScale]);
+    }, [cardPitch, coverSize, edgePadding, grid3dCardStyle, items.length, itemsSignature]);
 
     const reportFocusedIndex = useCallback((index: number) => {
         const nextIndex = clampFocusedIndex(index, items.length);
@@ -439,6 +647,21 @@ export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
         return () => cancelAnimationFrame(frameId);
     }, [centerIndex, focusedIndex, isLoading, items.length, itemsSignature, reduceMicroMotion, updateCardTransforms]);
 
+    // 切回这个页签（被 keep-alive 保持但不活动，现在重新激活）时把焦点卡重新对正：不活动期间可能有一次
+    // 没跑完的平滑滚动被打断、或容器尺寸变过，滚动位置会停在半路，而上面那个居中 effect 因为焦点和列表
+    // 都没变不会重跑。只在 false → true 这一下动，不干扰活动中的正常滚动。
+    const wasInteractiveRef = useRef(isInteractive);
+    useEffect(() => {
+        const wasInteractive = wasInteractiveRef.current;
+        wasInteractiveRef.current = isInteractive;
+        if (wasInteractive || !isInteractive || isLoading || items.length === 0) return;
+        const frameId = requestAnimationFrame(() => {
+            centerIndex(clampFocusedIndex(focusedIndex, items.length), 'auto');
+            updateCardTransforms();
+        });
+        return () => cancelAnimationFrame(frameId);
+    }, [centerIndex, focusedIndex, isLoading, isInteractive, items.length, updateCardTransforms]);
+
     const handleScroll = useCallback(() => {
         if (!isInteractive) {
             updateCardTransforms();
@@ -611,7 +834,7 @@ export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
     const focusedSecondaryText = focusedItem ? getGrid3DSliderSecondaryText(focusedItem) : '';
 
     return (
-        <div ref={containerRef} data-grid3d-slider-root className="w-full flex-1 flex flex-col justify-center relative min-h-0 select-none">
+        <div ref={containerRef} className="w-full flex-1 flex flex-col justify-center relative min-h-0 h-full select-none">
             <div
                 ref={scrollContainerRef}
                 data-grid3d-slider
@@ -627,29 +850,12 @@ export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
             >
                 <div className="flex" style={{ paddingInline: edgePadding }}>
                     {isLoading ? (
-                        Array.from({ length: 5 }).map((_, index) => (
-                            <div key={`skeleton-${index}`} className="shrink-0 pointer-events-none select-none">
-                                {grid3dCardStyle === 'image' ? (
-                                    <div
-                                        data-grid3d-card="image"
-                                        className="aspect-square rounded-2xl animate-pulse bg-zinc-200/20 dark:bg-zinc-800/20 border border-white/5 shadow-inner"
-                                        style={{ width: coverSize, height: coverSize }}
-                                    />
-                                ) : (
-                                    <div
-                                        data-grid3d-card="polaroid"
-                                        className="rounded-xl border border-white/5 p-4 flex flex-col items-center backdrop-blur-md shadow-lg"
-                                        style={{ width: coverSize }}
-                                    >
-                                        <div data-grid3d-card-cover className="w-full aspect-square rounded-lg animate-pulse bg-zinc-200/20 dark:bg-zinc-800/20 mb-4" />
-                                        <div data-grid3d-card-text className="w-full text-left pt-2 space-y-2">
-                                            <div className="h-4 w-3/4 animate-pulse bg-zinc-200/20 dark:bg-zinc-800/20 rounded-md" />
-                                            <div className="h-3 w-1/2 animate-pulse bg-zinc-200/20 dark:bg-zinc-800/20 rounded-md" />
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        ))
+                        <div
+                            className="shrink-0 flex items-center justify-center pointer-events-none select-none"
+                            style={{ width: coverSize, height: coverSize }}
+                        >
+                            <LoadingRing />
+                        </div>
                     ) : items.length === 0 ? (
                         <div className="opacity-40 text-sm font-sans flex items-center justify-center w-[20vw] shrink-0 text-center">
                             {emptyMessage || t('ui.noItemsFound')}
@@ -681,7 +887,116 @@ export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
                                             scrollToIndex(index);
                                         }
                                     }}
-                                />
+                                	>
+                                    {grid3dCardStyle === 'image' ? (
+                                        <div
+                                            className={`aspect-square rounded-2xl overflow-hidden shadow-2xl relative border border-white/10 ${
+                                                isFocused ? 'ring-2 ring-white/30' : ''
+                                            }`}
+                                            style={{ width: coverSize, height: coverSize }}
+                                        >
+                                            {item.coverUrl ? (
+                                                <img src={getSizedCoverUrl(item.coverUrl, coverSize)} alt={typeof displayName === 'string' ? displayName : ''} loading="lazy" decoding="async" className="w-full h-full object-cover pointer-events-none select-none" />
+                                            ) : (
+                                                <div className="w-full h-full  flex items-center justify-center">
+                                                    <Disc size={64} className="opacity-20" />
+                                                </div>
+                                            )}
+                                            <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 hover:opacity-100 transition-opacity" />
+                                        </div>
+                                    ) : (() => {
+                                        // 卡片
+                                        const cardSurfaceClassName = "rounded-xl border p-4 flex flex-col items-center theme-polaroid-card";
+                                        const cardSurfaceStyle: React.CSSProperties = {
+                                            width: coverSize,
+                                            backgroundColor: isDaylight
+                                                ? "rgba(255,255,255,0.4)"
+                                                : "rgba(0,0,0,0.4)",
+                                            borderTop: isDaylight
+                                                ? "1px solid rgba(0,0,0,0.08)"
+                                                : "1px solid rgba(255,255,255,0.12)",
+                                            borderBottom: isDaylight
+                                                ? "1px solid rgba(0,0,0,0.08)"
+                                                : "1px solid rgba(255,255,255,0.12)",
+                                            outline: "1px solid rgba(40,40,40,0.2)",
+                                            boxShadow: "2px 2px 8px 2px rgba(40,40,40,0.4)",
+                                            color: 'var(--text-primary)',
+                                        };
+                                        const renderCardBody = (reflection = false) => (
+                                            <>
+                                                <div
+                                                    className="w-full aspect-square rounded-lg overflow-hidden relative shadow-inner mb-4 flex items-center justify-center"
+                                                >
+                                                    {item.coverUrl ? (
+                                                        <img src={getSizedCoverUrl(item.coverUrl, coverSize)} alt={typeof displayName === 'string' ? displayName : ''} loading="lazy" decoding="async" className="w-full h-full object-cover pointer-events-none select-none" />
+                                                    ) : (
+                                                        <Disc size={64} className="opacity-20" />
+                                                    )}
+                                                </div>
+                                                <div className="w-full text-left pt-2 min-w-0">
+                                                    <h3 className="font-bold text-sm truncate max-w-full tracking-tight">
+                                                        {displayName}
+                                                    </h3>
+                                                    {secondaryText && (
+                                                        <p
+                                                            className={`text-xs opacity-50 max-w-full mt-1 font-medium ${folderPath ? 'line-clamp-2 break-words' : 'truncate'}`}
+                                                            title={folderPath || undefined}
+                                                        >
+                                                            {secondaryText}
+                                                        </p>
+                                                    )}
+                                                    {summaryText && (
+                                                        <p className="text-[10px] leading-snug opacity-45 mt-2 line-clamp-2">
+                                                            {summaryText}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </>
+                                        );
+                                        // 加倒影：整张卡片镜像后贴在卡片底边下面，并向下渐隐（不改布局，随卡片一起缩放/位移）。
+                                        // 倒影只留贴着卡片的一小段（GRID3D_REFLECTION_BAND_PX），并且在这一段里就淡完：
+                                        // 整张镜像铺出去的话，滚动容器的 overflow-y-hidden 会在中途把它切掉，
+                                        // 倒影断成一条硬边，看着割裂；带子外的内容本来就该是全透明的，被裁掉也看不出来。
+                                        return (
+                                            <div className="relative" style={{ width: coverSize }}>
+                                                <div
+                                                    {...{ [MORPH_FRAME_ATTR]: '' }}
+                                                    data-glass data-glass-light
+                                                    className={`${cardSurfaceClassName} shadow-lg hover:shadow-2xl`}
+                                                    style={cardSurfaceStyle}
+                                                >
+                                                    {renderCardBody()}
+                                                </div>
+                                                <div
+                                                    aria-hidden="true"
+                                                    className="pointer-events-none select-none absolute inset-x-0 top-full overflow-hidden"
+                                                    style={{
+                                                        height: GRID3D_REFLECTION_BAND_PX,
+                                                        WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,0.55) 60%, transparent 100%)',
+                                                        maskImage: 'linear-gradient(to bottom, rgba(0,0,0,0.55) 60%, transparent 100%)',
+                                                    }}
+                                                >
+                                                    <div
+                                                        className={`${cardSurfaceClassName}`}
+                                                        style={{
+                                                            ...cardSurfaceStyle,
+                                                            position: 'absolute',
+                                                            left: 0,
+                                                            right: 0,
+                                                            top: 0,
+                                                            boxShadow: 'none',
+                                                            opacity: isDaylight ? 0.35 : 0.5,
+                                                            transform: 'scaleY(-1)',
+                                                            transformOrigin: 'center',
+                                                        }}
+                                                    >
+                                                        {renderCardBody(true)}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
                             );
                         })}
                         {trailingSpacerWidth > 0 && (

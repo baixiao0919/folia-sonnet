@@ -11,7 +11,8 @@ import { getPlaybackSongKey } from '../../../../utils/appPlaybackGuards';
 import type { OnlineRecovery, OnlineRecoveryOptions } from '../restore/createOnlineRecoveryController';
 import type { OnlineFailure } from '../../../../services/onlineMusic/failure/onlineFailureCase';
 import { onlineFailureToast } from '../source/onlineFailureToast';
-import { nativePlaybackEngine } from '../../../../services/playbackEngine/nativePlaybackEngine';
+import { hifiTransport, isHifiRoute } from '../../../../services/hifi/hifiPlayback';
+import { resumeHifiPlayback } from '../../../hifi/hifiRouteTransport';
 
 // src/components/app/playback/bridges/usePlaybackTransportController.ts
 
@@ -109,6 +110,13 @@ export function usePlaybackTransportController({
         wantsPlayback.current = true;
         // 这一次是明确的播放意图，之前排队的「回到前台补一次」就不必再发。
         pendingForegroundResumeRef.current = false;
+
+        // mpv plays this song: no AudioContext, fade or analyser on that route. A replay after the
+        // queue ended (mpv was stopped) goes through playSong, which writes the state itself.
+        if (isHifiRoute()) {
+            if (resumeHifiPlayback()) setPlayerState(PlayerState.PLAYING);
+            return;
+        }
 
         if (activePlaybackContext === 'stage' && stageActiveEntryKind === 'lyrics' && !audioSrc) {
             const currentSyntheticTime = getSyntheticStageLyricsTime();
@@ -298,6 +306,13 @@ export function usePlaybackTransportController({
         wantsPlayback.current = false;
         // 用户自己按了暂停，那一下排队的补播就该作废。
         pendingForegroundResumeRef.current = false;
+
+        // Before the fade logic: the fade graph belongs to the Web Audio route, and mpv pauses at once.
+        if (isHifiRoute()) {
+            void hifiTransport.pause();
+            setPlayerState(PlayerState.PAUSED);
+            return;
+        }
 
         if (activePlaybackContext === 'stage' && stageActiveEntryKind === 'lyrics' && !audioSrc) {
             const currentSyntheticTime = getSyntheticStageLyricsTime();

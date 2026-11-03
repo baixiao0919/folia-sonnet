@@ -20,6 +20,7 @@ import { nativePlaybackEngine } from '../../../../services/playbackEngine/native
 import { omni } from '../../../../services/onlineMusic/omni';
 import { readIncomingLyricClock } from './incomingLyricClock';
 import { isBackgroundLyricHeld, setHeldLyricTime, useBackgroundLyricHoldStore } from '../../backgroundThrottling/backgroundLyricHoldStore';
+import { getHifiPosition } from '../../../../services/hifi/hifiPlayback';
 
 // src/components/app/playback/bridges/usePlaybackVisualizerBridge.ts
 
@@ -114,6 +115,8 @@ export function usePlaybackVisualizerBridge({
     const activePlaybackContext = usePlaybackStore(state => state.activePlaybackContext);
     const playerState = usePlaybackStore(state => state.playerState);
     const duration = usePlaybackStore(state => state.duration);
+    // mpv sounds the song on the HiFi route: the decks are silent, and the clock is extrapolated from mpv's position.
+    const isHifiActive = usePlaybackStore(state => state.playbackRoute) === 'hifi';
     // The lyrics on screen, matching the deck getDisplayElement points at.
     const lyrics = usePlaybackStore(selectDisplayLyrics);
     // The live lyrics, which during a blend are the incoming track's (null until they load).
@@ -257,18 +260,8 @@ export function usePlaybackVisualizerBridge({
         // Normally the active deck; the outgoing one for as long as a blend holds the picture on
         // the track it is finishing, so that clock and picture never describe different songs.
         const audioElement = getDisplayElement?.() ?? audioRef.current;
-        // 原生播放（P1）：元素是空的，它的 currentTime 恒为 0，而歌词与进度条都从下面
-        // 那个 `time` 走 —— 所以这时候改从引擎读插值后的位置。
-        //
-        // ⚠️ 判据是 `ownsPlayback`（原生手上有没有歌），**不是** `isPlaying`：
-        // 缓冲、切后台、焦点被抢都会让 isPlaying 短暂为 false，跟着它走的结果就是
-        // 「进度条和歌词时走时停、一停一冲」—— 用户说的抽搐。位置该不该前进由引擎的
-        // 插值决定（停着的时候它本来就给同一个值）。
-        const usesNativeClock = nativePlaybackEngine.ownsPlayback();
-        const nativeTime = usesNativeClock ? nativePlaybackEngine.getPositionSec() : null;
-        const isActuallyPlaying = usesNativeClock
-            ? nativePlaybackEngine.isPlaying()
-            : Boolean(audioElement && !audioElement.paused && !audioElement.ended);
+        // Never on the HiFi route, so the spectrum keeps the idle breath there: there is no analyser on mpv's output.
+        const isActuallyPlaying = !isHifiActive && Boolean(audioElement && !audioElement.paused && !audioElement.ended);
         // Mid-handover a deck can be loading while the other one is still sounding. The analyser
         // is downstream of both, so it has real signal: dropping to the idle breath here would put
         // a visible stutter at exactly the moment meant to be seamless.
@@ -355,14 +348,20 @@ export function usePlaybackVisualizerBridge({
             audioBands.treble.set(process(treble, 2));
         }
 
-        // 原生这一路不看 isActuallyPlaying：暂停时引擎给的是停住的位置，照样要写进去
-        // （不写的话进度条与歌词会停在「上一次还活着」的地方，等下次 events 才跳一次）。
-        const clockTime = usesNativeClock
-            ? (nativeTime as number)
-            : (isActuallyPlaying && audioElement ? audioElement.currentTime : null);
+        if (isHifiActive) {
+            // Every frame, paused or not: the clock stands still while mpv is paused, and a seek while
+            // paused moves it. No end handling here - mpv reports the end itself.
+            const time = getHifiPosition();
+            currentTime.set(time);
 
-        if (clockTime !== null) {
-            const time = clockTime;
+            const effectiveLyricTime = time - displayOffsetMsRef.current / 1000;
+            showLyricTime(effectiveLyricTime);
+
+            if (lyrics) {
+                showLine(findLatestActiveLineIndex(lyrics.lines, effectiveLyricTime));
+            }
+        } else if (isActuallyPlaying && audioElement) {
+            const time = audioElement.currentTime;
             currentTime.set(time);
 
             const effectiveLyricTime = time + lyricClipStartSec(audioElement) - displayOffsetMsRef.current / 1000;
@@ -473,6 +472,7 @@ export function usePlaybackVisualizerBridge({
         lyricClipStartSec,
         isTransitionAudible,
         getDisplayElement,
+        isHifiActive,
     ]);
 
     // Every frame normally; while 后台节流 holds the lyrics, a slow timer that keeps only the clocks. The

@@ -139,24 +139,10 @@ export const resolveBgModeTheme = ({
     daylightTheme: Theme;
     previousTheme?: Theme;
 }): Theme => {
+    // "default" once meant only the default background under the AI foreground; it is now a theme
+    // source of its own, so it returns the built-in theme whole even while an AI theme is loaded.
     if (mode === 'default') {
-        const baseTheme = getBaseThemeForMode({ defaultTheme, daylightTheme, isDaylight });
-        if (!aiTheme) {
-            return baseTheme;
-        }
-        const selectedAiTheme = isDaylight ? aiTheme.light : aiTheme.dark;
-        /*
-         * 背景就是默认主题的那一份，文字、强调色、按钮这些也都用默认的 —— 只把**这首歌**的
-         * 高亮词与歌词图标带过来（它们跟着这首歌的主题走，缺了就没有 AI 高亮）。
-         *
-         * 以前这里返回的是整份 `selectedAiTheme` 只换背景，于是「主题来源」切回默认时，除了底色
-         * 之外还是上一个来源的配色，看起来像没切回去（只能靠「重置主题」）。
-         */
-        return {
-            ...baseTheme,
-            wordColors: selectedAiTheme.wordColors,
-            lyricsIcons: selectedAiTheme.lyricsIcons,
-        };
+        return getBaseThemeForMode({ defaultTheme, daylightTheme, isDaylight });
     }
 
     const selectedAiTheme = aiTheme

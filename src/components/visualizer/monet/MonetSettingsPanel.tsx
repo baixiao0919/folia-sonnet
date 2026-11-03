@@ -1,17 +1,21 @@
 import React, { useRef, useState } from 'react';
 import { ImagePlus, Trash2 } from 'lucide-react';
 import { useVisualizerAssetStore } from '../../../stores/useVisualizerAssetStore';
-import { DEFAULT_MONET_TUNING, type MonetPortraitSource, type MonetTuning } from '../../../types';
-import { Button, Group, PictureGrid, Row, Segmented, type SettingsGroupDef } from '../../modal/settings/kit';
-import { TextField } from '../../ui';
+import { DEFAULT_MONET_TUNING, type MonetAudioStyle, type MonetPortraitSource, type MonetTuning } from '../../../types';
+import { DEFAULT_LYRIC_RENDER_OVERRIDE } from '../../../utils/lyricRenderQuality';
+import { Button, Group, PictureGrid, Reveal, Row, Segmented, type SettingsGroupDef } from '../../modal/settings/kit';
 import { type VisualizerSettingsPanelProps } from '../definition';
 import { SliderRow, times, ToggleRow } from '../panelRows';
+import LyricRenderQualityRows from '../renderQuality/LyricRenderQualityRows';
 
 // src/components/visualizer/monet/MonetSettingsPanel.tsx
-// Monet-specific lyric, audio, and portrait controls, as three groups of the settings kit.
+// Monet-specific lyric, audio, portrait and render controls, as four groups of the settings kit.
 // Background controls live in the shared background panel.
 const LYRICS_GROUP: SettingsGroupDef = { id: 'vis-monet-lyrics', titleKey: 'options.lyricsStyleSettings' };
 const PORTRAIT_GROUP: SettingsGroupDef = { id: 'vis-monet-portrait', titleKey: 'options.cappellaAvatarSource' };
+const AUDIO_GROUP: SettingsGroupDef = { id: 'vis-monet-audio', titleKey: 'options.monetAudioStyle' };
+// 只有底部音频条是 canvas 2D：只给分辨率一行（#929）。
+const RENDER_GROUP: SettingsGroupDef = { id: 'vis-monet-render', titleKey: 'options.lyricRenderSection' };
 
 type MonetPortraitStyle = 'rectangular' | 'square';
 
@@ -155,6 +159,41 @@ export const MonetSettingsPanel: React.FC<VisualizerSettingsPanelProps<MonetTuni
                 />
             </Group>
 
+            <Group def={AUDIO_GROUP}>
+                <ToggleRow
+                    label={t('options.monetShowAudioVisualization')}
+                    checked={resolvedTuning.showAudioVisualization}
+                    onChange={(value) => onMonetTuningChange?.({ showAudioVisualization: value })}
+                />
+                <Reveal when={resolvedTuning.showAudioVisualization}>
+                    <Row
+                        sub
+                        label={t('options.monetAudioStyle')}
+                        below={(
+                            <PictureGrid<MonetAudioStyle>
+                                className="-mx-4"
+                                columns={4}
+                                label={t('options.monetAudioStyle')}
+                                value={resolvedTuning.audioStyle}
+                                options={[
+                                    { value: 'bar', label: t('options.monetAudioStyleBar') },
+                                    { value: 'line', label: t('options.monetAudioStyleLine') },
+                                ]}
+                                picture={audioStylePicture}
+                                onChange={(value) => onMonetTuningChange?.({ audioStyle: value })}
+                            />
+                        )}
+                    />
+                </Reveal>
+            </Group>
+
+            <Group def={RENDER_GROUP}>
+                <LyricRenderQualityRows
+                    value={monetTuning.render ?? DEFAULT_LYRIC_RENDER_OVERRIDE}
+                    onChange={(patch) => onMonetTuningChange?.({ render: { ...(monetTuning.render ?? DEFAULT_LYRIC_RENDER_OVERRIDE), ...patch } })}
+                    antialias={false}
+                />
+            </Group>
         </>
     );
 };

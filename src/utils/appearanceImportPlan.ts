@@ -17,9 +17,9 @@ import type { UrlBackgroundItem } from '../types';
 // auto-switch value can also flip "prefer custom theme" — a setting that is not in the config at
 // all and would otherwise change with no warning.
 
-export type ImportGroup = 'theme' | 'visualizer' | 'fonts' | 'background' | 'songTheme' | 'trackCard' | 'libraryWall';
+export type ImportGroup = 'theme' | 'visualizer' | 'fonts' | 'background' | 'songTheme' | 'trackCard' | 'libraryWall' | 'liquidGlass';
 
-export const IMPORT_GROUPS: ImportGroup[] = ['theme', 'visualizer', 'fonts', 'background', 'songTheme', 'trackCard', 'libraryWall'];
+export const IMPORT_GROUPS: ImportGroup[] = ['theme', 'visualizer', 'fonts', 'background', 'songTheme', 'trackCard', 'libraryWall', 'liquidGlass'];
 
 export interface ImportChange {
     group: ImportGroup;
@@ -152,8 +152,10 @@ const FIELD_GROUPS: Record<string, ImportGroup> = {
     libraryWallBackdropBlur: 'libraryWall',
     libraryWallSeamDirection: 'libraryWall',
 
-    // 播放页标题栏后面的磨砂底。归在 visualizer 组，和同样会跟着导出的
-    // hidePlayerTranslationSubtitle 一起：它属于「播放页长什么样」。
+    // 流体玻璃的三个全局参数：一套玻璃的调参，和别的分组没有从属关系，单独成组。
+    liquidGlass: 'liquidGlass',
+    // The frosted bar behind the player page's titlebar. Under visualizer with the other player-page
+    // switch that travels (hidePlayerTranslationSubtitle): it is part of how the playing screen looks.
     playerHeaderBlur: 'visualizer',
 };
 

@@ -7,6 +7,7 @@ import { resolveThemeFontStack, resolveThemeFontWeight } from '../../../utils/fo
 import { getLineRenderEndTime } from '../../../utils/lyrics/renderHints';
 import type { VisualizerSharedProps } from '../definition';
 import { useVisualizerPixiHost } from '../pixi/pixiRuntimeHost';
+import { useGlobalLyricRenderQuality, useLyricRenderQualityPin } from '../renderQuality/lyricRenderQualityPin';
 import { useVisualizerRuntime } from '../runtime';
 import { useVisualizerSongCommit } from '../songHandover';
 import { resolveSubtitleFontSizes } from '../subtitleFontSizes';
@@ -15,6 +16,7 @@ import VisualizerSubtitleOverlay from '../VisualizerSubtitleOverlay';
 import { closeMachiCameraBar, isMachiCameraBarOpen, subscribeMachiCameraBar } from './cameraBar';
 import type { MachiRuntime, MachiSongContext } from './createMachiRuntime';
 import MachiCameraBar from './MachiCameraBar';
+import { pinMachiQualityForExport } from './machiTuning';
 import type { MachiSceneId, MachiTuning } from './types';
 
 // src/components/visualizer/machi/VisualizerMachi.tsx
@@ -57,18 +59,21 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
         songAlbum,
         isPlayerChromeHidden = false,
         hideTranslationSubtitle = false,
-        /* 底部字幕的单/双/三行布局：与其它样式一致，原样转给 overlay。 */
+        subtitleOverlayLayout,
         subtitleTheme,
         subtitleFontScale,
         subtitleOverlayOpacity,
         subtitleOverlayBackground,
         subtitleUpcomingLyricsBlur,
-        subtitleOverlayLayout,
         onVisualizerTuningChange,
     } = props;
     const { t } = useTranslation();
     const hostRef = useRef<HTMLDivElement>(null);
     const [runtimeFailed, setRuntimeFailed] = useState(false);
+    // 歌词画布的全局分辨率与抗锯齿挡位：画质里跟随全局的两项用它。视频导出钉住了 1× 时，町景自己选的分辨率、抗锯齿和自动降级
+    // 也不算（下面 shownTuning，pinMachiQualityForExport）。
+    const renderQuality = useGlobalLyricRenderQuality();
+    const renderPinned = useLyricRenderQualityPin() !== null;
     const [contextEpoch, setContextEpoch] = useState(0);
     // 取景控制条：只在播放页上（预览不接拖拽，也没有地方存改动；画面在主页后面当背景时也不出）。
     const onPlayerPage = useAppViewStore(state => state.view === 'player');
@@ -78,11 +83,16 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
     // 取景控制条拖动中的改动（还没存）：画面用存下的 tuning 叠上它。
     const barDraftRef = useRef<Partial<MachiTuning> | null>(null);
     const [barDraft, setBarDraft] = useState<Partial<MachiTuning> | null>(null);
-    const shownTuning = useMemo(() => (barDraft ? { ...machiTuning, ...barDraft } : machiTuning), [machiTuning, barDraft]);
+    const shownTuning = useMemo(() => {
+        const tuning = barDraft ? { ...machiTuning, ...barDraft } : machiTuning;
+        if (!renderPinned) return tuning;
+        const quality = pinMachiQualityForExport(tuning.quality);
+        return quality === tuning.quality ? tuning : { ...tuning, quality };
+    }, [machiTuning, barDraft, renderPinned]);
 
     // 运行时创建期间这些输入可能已经变了；create 完成后按最新值补一次。
-    const latestRef = useRef({ theme, paused, showText, staticMode, machiTuning, shownTuning, onVisualizerTuningChange });
-    latestRef.current = { theme, paused, showText, staticMode, machiTuning, shownTuning, onVisualizerTuningChange };
+    const latestRef = useRef({ theme, paused, showText, staticMode, machiTuning, shownTuning, renderQuality, onVisualizerTuningChange });
+    latestRef.current = { theme, paused, showText, staticMode, machiTuning, shownTuning, renderQuality, onVisualizerTuningChange };
 
     const previewFromBar = useCallback((patch: Partial<MachiTuning>) => {
         barDraftRef.current = { ...barDraftRef.current, ...patch };
@@ -134,6 +144,7 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
                 song,
                 theme: latest.theme,
                 tuning: latest.shownTuning,
+                renderQuality: latest.renderQuality,
                 currentTime,
                 audioPower,
                 audioBands,
@@ -154,6 +165,7 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
             const current = latestRef.current;
             runtime.setTheme(current.theme);
             runtime.setTuning(current.shownTuning);
+            runtime.setRenderQuality(current.renderQuality);
             runtime.setShowText(current.showText);
             runtime.setStaticMode(current.staticMode);
             runtime.setPaused(current.paused);
@@ -178,6 +190,10 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
     useEffect(() => {
         runtimeRef.current?.setTuning(shownTuning);
     }, [shownTuning, runtimeRef]);
+
+    useEffect(() => {
+        runtimeRef.current?.setRenderQuality(renderQuality);
+    }, [renderQuality, runtimeRef]);
 
     useEffect(() => {
         runtimeRef.current?.setShowText(showText);
@@ -268,9 +284,9 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
                 subtitleOverlayOpacity={subtitleOverlayOpacity}
                 subtitleOverlayBackground={subtitleOverlayBackground}
                 subtitleUpcomingLyricsBlur={subtitleUpcomingLyricsBlur}
-                subtitleOverlayLayout={subtitleOverlayLayout}
                 isPlayerChromeHidden={isPlayerChromeHidden}
                 hideTranslationSubtitle={hideTranslationSubtitle}
+                subtitleOverlayLayout={subtitleOverlayLayout}
             />
         </VisualizerShell>
     );

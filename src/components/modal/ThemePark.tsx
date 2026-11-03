@@ -91,7 +91,7 @@ const ThemePark: React.FC<ThemeParkProps> = ({
     const [isPaused, setIsPaused] = useState(false);
     const [previewSource, setPreviewSource] = useState<PreviewSource>('builtin');
     const previewBoxRef = useRef<HTMLDivElement>(null);
-    // 内置示例让位给「实时」时，这里放的是播放器现在显示的内容；没有歌词就是 null。
+    // What the player shows now, when the sample is set aside for it; null while it has no lyrics.
     const livePreview = useLivePreviewFeed({ enabled: previewSource === 'live', paused: isPaused, stageRef: previewBoxRef });
     const liveContent = livePreview.content;
 
@@ -121,9 +121,9 @@ const ThemePark: React.FC<ThemeParkProps> = ({
     });
     const { target, setTarget, mode, draft, safeDraft, baseTheme, reset, buildFinalTheme } = editor;
 
-    // 实时画面在画的时候，内置示例的时钟歇着。
+    // The sample's clock rests while the live picture is drawn.
     const sampleClock = useThemeParkPreviewClock(visualizerMode, isPaused || liveContent !== null);
-    // 示例暂停时时间不动，而刚挂上去的样式要一次变化才会画出来（从实时切回来时就是这种情况）。
+    // The sample, paused, has no change of time for a style mounted anew (a switch from the live picture).
     useStillClockPulse({ time: sampleClock.currentTime, still: isPaused && liveContent === null, boxRef: previewBoxRef, restartKey: previewSource });
     const { currentTime, audioPower, audioBands } = liveContent ? livePreview : sampleClock;
     const currentLineIndex = liveContent ? liveContent.currentLineIndex : sampleClock.currentLineIndex;
@@ -193,6 +193,7 @@ const ThemePark: React.FC<ThemeParkProps> = ({
                     subtitleOverlayLayout={subtitleOverlayLayout}
                     lyricsFontScale={lyricsFontScale}
                     currentTime={currentTime}
+                    progressTime={liveContent ? livePreview.playbackTime : sampleClock.currentTime}
                     currentLineIndex={currentLineIndex}
                     audioPower={audioPower}
                     audioBands={audioBands}

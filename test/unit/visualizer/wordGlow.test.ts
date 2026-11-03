@@ -42,8 +42,8 @@ describe('stepped glow radius', () => {
         setGlowBlurQuantized(false);
         const targets = CUSTOMS.map(active);
         expect(targets.map(target => target.transition.ease)).toEqual(['easeOut', 'easeInOut', 'easeInOut', 'easeInOut']);
-        // text-shadow 一变，这个词每帧都要重新光栅化；所以每种出现方式只有一串固定光晕，
-        // waiting / active / passed 三态用的是同一串，动的只有 opacity。
+        // A text-shadow that changes re-rasters the glyph every frame; the halo is one fixed string
+        // per mode, the same in waiting, active and passed, and only opacity moves.
         const halos = ['0 0 14px #ffd54f, 0 0 24px #ffd54f', '0 0 18px #ffd54f, 0 0 32px #ffd54f', '0 0 20px #ffd54f, 0 0 40px #ffd54f', '0 0 20px #ffd54f, 0 0 40px #ffd54f'];
         targets.forEach((target, i) => {
             expect(target.color).toBe('transparent');

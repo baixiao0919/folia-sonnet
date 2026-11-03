@@ -2,15 +2,31 @@
 
 将 Folia 打包到 Android 平台的实验性项目。它不是官方 Android 客户端，也不代表 Folia 主项目的移动端计划；本仓库版本基于 **Folia-major 0.7.21** 正式版。
 
-> [!IMPORTANT]  
-> **装上去就能用，不需要自建后端。**
->
-> 本版本已内置**本地登录**：网易云、QQ 音乐（QQ 扫码与微信扫码）、酷狗的接口代码都打进了包里，  
-> 由 Android 原生桥（OkHttp + 系统 Cookie 罐）直接代发请求。扫码登录后，搜索、歌单、歌词、封面、  
-> 播放地址全部由 App 自己向官方服务器取，**不经过任何第三方中转服务器**。
->
-> 源码本身不含任何内置的第三方后端地址。未配置可选的 AI 主题服务时，只有 AI 主题生成与少量歌词  
-> 代理不可用，听歌、歌词、封面、本地音乐等其余功能不受影响。
+# Folia
+
+Lyrics Reimagined // 辞曲新境
+
+简体中文 | [English](README.en.md)
+
+[![GitHub release](https://img.shields.io/github/v/release/chthollyphile/folia-major?label=release)](https://github.com/chthollyphile/folia-major/releases)
+[![License](https://img.shields.io/github/license/chthollyphile/folia-major)](https://github.com/chthollyphile/folia-major/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/chthollyphile/folia-major?style=social)](https://github.com/chthollyphile/folia-major/stargazers)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/chthollyphile/folia-major)
+[![Discord](https://img.shields.io/discord/1541051241822687232?logo=discord&logoColor=white&label=Join%20our%20Discord)](https://discord.gg/dMDBTHxeKd)
+<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
+[![All Contributors](https://img.shields.io/badge/all_contributors-35-orange.svg?style=flat-square)](CONTRIBUTORS.md)
+<!-- ALL-CONTRIBUTORS-BADGE:END -->
+
+[获取方式](https://github.com/chthollyphile/folia-major#%E8%8E%B7%E5%8F%96%E6%96%B9%E5%BC%8F)
+·
+[Vercel 部署](https://vercel.com/new/clone?repository-url=https://github.com/chthollyphile/folia-major)
+·
+[使用指南](https://folia-site.cielaniska.top/guide/)
+·
+[技术说明](docs/technical.md)
+
+</div>
 
 ## 项目简介
 

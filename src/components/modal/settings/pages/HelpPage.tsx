@@ -22,9 +22,10 @@ import { Button as UiButton } from '@/components/ui';
 // is not in pages/index.ts and the search does not list it; the settings window mounts it itself
 // and hands it the two dialogs it opens.
 
-// fork 的仓库，不是上游 chthollyphile/folia-major —— 同步上游时被带回原版过，别再让它落回去。
-const REPOSITORY_URL = 'https://github.com/maimai993/folia-sonnet';
-const REPOSITORY_NAME = 'maimai993/folia-sonnet';
+const REPOSITORY_URL = 'https://github.com/chthollyphile/folia-major';
+const REPOSITORY_NAME = 'chthollyphile/folia-major';
+const SHINO_REPOSITORY_URL = 'https://github.com/Riru233/folia-major';
+const SHINO_REPOSITORY_NAME = 'Riru233/folia-major';
 const BUILD_KIND = getBuildKind();
 const VERSION_INFO = (__DOCKER_STACK_VERSION__
     ? `${__APP_VERSION_LABEL__} v${__APP_VERSION__} · Stack ${__DOCKER_STACK_VERSION__} · ${__COMMIT_HASH__}`
@@ -175,17 +176,12 @@ const HelpPage: React.FC<HelpPageProps> = ({ onOpenReleaseNotes, onOpenAiHelp, o
                         <UiButton onClick={onProjectLabelClick} className="cursor-default">{t('help.madeBy')}</UiButton>
                     )}
                 >
-                    {/*
-                     * 这颗就是「跳仓库」的那颗按钮 —— 它没被删过，但以前用的是 quiet 那一档
-                     * （24px 高、次级文字色、没有底），手机上再乘一遍界面缩放就只剩指甲盖那么
-                     * 一点，而它的行标题写的是「项目：」—— 一行没有任何链接暗示的字里藏着一粒
-                     * 灰字，看上去就跟「仓库链接被删了」一模一样。
-                     *
-                     * 所以改成常规那一档：有底色和自身高度，看得出来能按；外链图标保留。
-                     * 行标题（含那个数到第七下出猫的点击）一个字都不动。
-                     */}
-                    <Button variant="fill" onClick={() => openOutsideLink(REPOSITORY_URL)}>
-                        {REPOSITORY_NAME}
+                    <Button variant="quiet" onClick={() => openOutsideLink(SHINO_REPOSITORY_URL)}>
+                        {SHINO_REPOSITORY_NAME}
+                        <ExternalLink size={12} />
+                    </Button>
+                    <Button variant="quiet" onClick={() => openOutsideLink(REPOSITORY_URL)}>
+                        feat: {REPOSITORY_NAME}
                         <ExternalLink size={12} />
                     </Button>
                 </Row>

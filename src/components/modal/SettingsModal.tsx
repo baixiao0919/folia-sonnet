@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { MotionValue } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
+import { getCacheUsageByCategory, clearCacheByCategory } from '../../services/db';
+import { forgetSettledDrumHits } from '../../services/analysis/drumHits';
+import { clearBalanceRuntime } from '../../services/volumeBalance/balanceRecords';
 import { DualTheme, StageStatus, StageSource, Theme, ThemeMode, type NowPlayingConnectionStatus, type ReplayGainMode } from '../../types';
 import type { PlayerCapConnectionStatus } from '../../types/playerCap';
 import { PageHeader } from './settings/kit';
@@ -36,11 +39,8 @@ import { usePlayerChromeSettingsStore } from '../../stores/usePlayerChromeSettin
 import { selectThemeSettingsSnapshot, useThemeSettingsStore } from '../../stores/useThemeSettingsStore';
 import { selectDesktopSettingsSnapshot, useDesktopSettingsStore } from '../../stores/useDesktopSettingsStore';
 import { useSettingsModalStore } from '../../stores/useSettingsModalStore';
-import { useAndroidLayoutSettingsStore } from '../../stores/useAndroidLayoutSettingsStore';
-import { useCacheUsagePanel } from './settings/useCacheUsagePanel';
-import { useElectronSettingsPanel } from './settings/useElectronSettingsPanel';
-import { useNavidromeSettingsPanel } from './settings/useNavidromeSettingsPanel';
-import SettingsSubWindows from './settings/SettingsSubWindows';
+import { setNavidromeEnabledState, useLibraryStore } from '../../stores/useLibraryStore';
+import { useGlass } from '@/shinoinject/useGlass';
 
 // Synchronous on purpose: the first render has to know which sections exist before the isElectron state below settles.
 const hasElectronBridge = () => typeof window !== 'undefined' && Boolean((window as any).electron);
@@ -152,8 +152,103 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         handleToggleVoiceInputPause: onToggleVoiceInputPause,
         handleToggleOpenPlayerOnLaunch: onToggleOpenPlayerOnLaunch,
     } = useDesktopSettingsStore(useShallow(selectDesktopSettingsSnapshot));
-    const { isDaylight } = useThemeSettingsStore(useShallow(selectThemeSettingsSnapshot));
-    const onToggleTransparentPlayerBackgroundFromStore = usePlayerChromeSettingsStore(state => state.handleToggleTransparentPlayerBackground);
+    const {
+        useCoverColorBg,
+        staticMode,
+        isDaylight,
+        handleToggleCoverColorBg: onToggleCoverColorBg,
+    } = useThemeSettingsStore(useShallow(selectThemeSettingsSnapshot));
+    const {
+        transparentPlayerBackground,
+        handleToggleTransparentPlayerBackground: onToggleTransparentPlayerBackgroundFromStore,
+    } = usePlayerChromeSettingsStore(useShallow(selectPlayerChromeSettingsSnapshot));
+    const {
+        lyricsCustomFontFamily,
+        lyricsCustomFontLabel,
+    } = useTypographySettingsStore(useShallow(selectTypographySettingsSnapshot));
+    const {
+        hidePlayerTranslationSubtitle,
+        showSubtitleTranslation,
+        subtitleContentMode,
+        subtitleOverlayLayout,
+        subtitleOverlayOpacity,
+        subtitleOverlayBackground,
+        subtitleUpcomingLyricsBlur,
+        showHarmonySubtitle,
+        harmonySubtitleBackground,
+        lyricsFontStyle,
+        lyricsFontScale,
+        subtitleFontScale,
+        lyricsFontWeight,
+        lyricsFontFallbackFamilies,
+        subtitleFontInheritsLyrics,
+        subtitleFontStyle,
+        subtitleFontWeight,
+        subtitleFontFamily,
+        subtitleFontFallbackFamilies,
+        handleToggleHidePlayerTranslationSubtitle: onToggleHidePlayerTranslationSubtitle,
+        handleToggleShowSubtitleTranslation: onToggleShowSubtitleTranslation,
+        handleSetSubtitleContentMode: onSubtitleContentModeChange,
+        handleSetSubtitleOverlayLayout: onSubtitleOverlayLayoutChange,
+        handleSetSubtitleOverlayOpacity: setSubtitleOverlayOpacity,
+        handleToggleSubtitleOverlayBackground: onToggleSubtitleOverlayBackground,
+        handleToggleSubtitleUpcomingLyricsBlur: onToggleSubtitleUpcomingLyricsBlur,
+        handleToggleShowHarmonySubtitle: onToggleShowHarmonySubtitle,
+        handleToggleHarmonySubtitleBackground: onToggleHarmonySubtitleBackground,
+        handleSetLyricsFontStyle: onLyricsFontStyleChange,
+        handleSetLyricsFontScale: onLyricsFontScaleChange,
+        handleSetSubtitleFontScale: onSubtitleFontScaleChange,
+        handleSetLyricsFontWeight: onLyricsFontWeightChange,
+        handleSetLyricsCustomFont: onLyricsCustomFontChange,
+        handleUploadLyricsCustomFont: onLyricsCustomFontUpload,
+        handleSetLyricsFontFallbackFamilies: onLyricsFontFallbackFamiliesChange,
+        handleSetSubtitleFontInheritsLyrics: onSubtitleFontInheritsLyricsChange,
+        handleSetSubtitleFontStyle: onSubtitleFontStyleChange,
+        handleSetSubtitleFontWeight: onSubtitleFontWeightChange,
+        handleSetSubtitleFontFamily: onSubtitleFontFamilyChange,
+        handleSetSubtitleFontFallbackFamilies: onSubtitleFontFallbackFamiliesChange,
+    } = useTypographySettingsStore(useShallow(selectTypographySettingsSnapshot));
+    const {
+        lyricLineRules,
+        lyricStaffPolicy,
+        lyricStaffMinDwellSeconds,
+        lyricStaffAbsorbMode,
+        lyricStaffPattern,
+    } = useLyricSettingsStore(useShallow(selectLyricSettingsSnapshot));
+    const {
+        handleToggleDisableVisualizerVignette: onToggleDisableVisualizerVignette,
+        handleToggleDisableVisualizerGeometricBackground: onToggleDisableVisualizerGeometricBackground,
+        handleSetBackgroundOpacity: setBackgroundOpacity,
+        handleSetVisualizerOpacity: setVisualizerOpacity,
+        handleSetVisualizerBackgroundMode: onVisualizerBackgroundModeChange,
+        handleSetVisualizerMode: onVisualizerModeChange,
+        handleUploadMonetBackgroundImage: onUploadMonetBackgroundImage,
+        handleClearMonetBackgroundImage: onClearMonetBackgroundImage,
+        handleAddUrlBackgroundItem: onAddUrlBackgroundItem,
+        handleUpdateUrlBackgroundItem: onUpdateUrlBackgroundItem,
+        handleDeleteUrlBackgroundItem: onDeleteUrlBackgroundItem,
+        handleSetUrlBackgroundSelectedId: onSetUrlBackgroundSelectedId,
+    } = useVisualizerSettingsStore(useShallow(selectVisualizerSettingsSnapshot));
+    const {
+        disableVisualizerVignette,
+        disableVisualizerGeometricBackground,
+        backgroundOpacity,
+        visualizerOpacity,
+        visualizerBackgroundMode,
+        visualizerMode,
+        urlBackgroundList,
+        urlBackgroundSelectedId,
+    } = useVisualizerSettingsStore(useShallow(selectVisualizerSettingsSnapshot));
+    // The store's fields as one object: the backgrounds' tunings are taken from it by their declarations.
+    const visualizerSettings = useVisualizerSettingsStore(useShallow(selectVisualizerSettingsSnapshot));
+    const visualizerTunings = useVisualizerTunings();
+    const {
+        cappellaCustomEmojiImages,
+        cappellaCustomAvatarImages,
+        monetBackgroundImage,
+        isLoadingMonetBackgroundImage,
+        monetPortraitImage,
+    } = useVisualizerAssetStore(useShallow(selectVisualizerAssetSnapshot));
     const resolvedToggleTransparentPlayerBackground = onToggleTransparentPlayerBackground ?? onToggleTransparentPlayerBackgroundFromStore;
     const setIsSubSettingsViewOpen = useSettingsModalStore(state => state.setIsSubSettingsViewOpen);
     // Help is a page of the same window, reached from the foot of the side list.
@@ -252,9 +347,149 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialAnchor]);
 
-    const electron = useElectronSettingsPanel({ themeGenerationSource, onChangeThemeGenerationSource });
-    const navidrome = useNavidromeSettingsPanel({ onToggleNavidrome });
-    const cache = useCacheUsagePanel(activeTab);
+    // Cache State
+    const [cacheSizes, setCacheSizes] = useState({
+        playlist: '0 B',
+        lyrics: '0 B',
+        cover: '0 B',
+        media: '0 B',
+        analysis: '0 B',
+        volumeBalance: '0 B'
+    });
+    const [mediaCount, setMediaCount] = useState(0);
+    const [isCleaning, setIsCleaning] = useState<CacheCategory | null>(null);
+
+    // Electron Settings State
+    // Seeded synchronously so a remembered desktop/mods section has its title on the first frame; the effect below still confirms it.
+    const [isElectron, setIsElectron] = useState(hasElectronBridge);
+    const [electronSettings, setElectronSettings] = useState({
+        GEMINI_API_KEY: '',
+        // Blank: the default model, worked out when the request is made (nothing is written back).
+        GEMINI_API_MODEL: '',
+        AI_PROVIDER_PRESET: '',
+        OPENAI_API_KEY: '',
+        OPENAI_API_URL: '',
+        OPENAI_API_MODEL: '',
+        OPENAI_API_TEMPERATURE: DEFAULT_OPENAI_TEMPERATURE,
+        OPENAI_API_STREAM: false,
+        AI_PROVIDER: 'gemini',
+        USE_SYSTEM_PROXY_FOR_AI: false,
+        ENABLE_UPDATE_CHECK: true,
+        ENABLE_AUTO_UPDATE: false,
+        UPDATE_CHANNEL: DEFAULT_UPDATE_CHANNEL,
+        STAGE_MODE_SOURCE: 'stage-api',
+        DISCORD_RICH_PRESENCE_ENABLED: false,
+    });
+    const [electronSettingsLoaded, setElectronSettingsLoaded] = useState(false);
+    // Keys stay in the main process; the renderer only knows which ones are saved, and the endpoint
+    // the OpenAI-compatible key is bound to. The GEMINI_API_KEY / OPENAI_API_KEY fields in
+    // electronSettings are drafts of a replacement key.
+    const [savedElectronAiCredentials, setSavedElectronAiCredentials] = useState({
+        AI_PROVIDER: 'gemini',
+        GEMINI_API_KEY: false,
+        OPENAI_API_KEY: false,
+        OPENAI_API_KEY_ENDPOINT: null as string | null,
+    });
+    const [electronSaveStatus, setElectronSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+    const [updateStatus, setUpdateStatus] = useState<ElectronUpdateStatus | null>(null);
+    const [discordPresenceStatus, setDiscordPresenceStatus] = useState<ElectronDiscordPresenceStatus | null>(null);
+    const [cacheDirectory, setCacheDirectory] = useState<string>('');
+    const [cacheDirectoryIsDefault, setCacheDirectoryIsDefault] = useState(true);
+    const [cacheDirectoryStatus, setCacheDirectoryStatus] = useState<'idle' | 'choosing'>('idle');
+    const isElectronRuntime = typeof window !== 'undefined' && Boolean(window.electron);
+    const savedAiApiKey = savedElectronAiCredentials.AI_PROVIDER === 'openai'
+        ? savedElectronAiCredentials.OPENAI_API_KEY
+        : savedElectronAiCredentials.GEMINI_API_KEY;
+    const aiApiKeyStatus: 'loading' | 'configured' | 'missing' = !isElectronRuntime
+        ? 'configured'
+        : !electronSettingsLoaded
+            ? 'loading'
+            : savedAiApiKey
+                ? 'configured'
+                : 'missing';
+
+    useEffect(() => {
+        if (aiApiKeyStatus === 'missing' && themeGenerationSource === 'ai') {
+            onChangeThemeGenerationSource('cover');
+        }
+    }, [aiApiKeyStatus, onChangeThemeGenerationSource, themeGenerationSource]);
+
+    // The four answers land while the window is still opening, and each one alone rendered the whole
+    // window again. Read together and applied as one transition, they render it once, between frames.
+    // Together also because the key's status is read from the settings and their "loaded" at once.
+    useEffect(() => {
+        const electron = (window as any).electron;
+        if (!electron) {
+            return;
+        }
+        setIsElectron(true);
+        void Promise.allSettled([
+            electron.getSettings(),
+            electron.getCacheDirectory(),
+            electron.getUpdateStatus?.(),
+            electron.getDiscordPresenceStatus?.(),
+        ]).then(([settingsAnswer, cacheDirectoryAnswer, updateAnswer, discordAnswer]) => {
+            const settings = settingsAnswer.status === 'fulfilled' ? settingsAnswer.value : null;
+            const cacheDirectoryResult: ElectronCacheDirectoryResult | null = cacheDirectoryAnswer.status === 'fulfilled' ? cacheDirectoryAnswer.value : null;
+            startTransition(() => {
+                if (settings) {
+                    const { AI_API_KEYS_CONFIGURED: configuredKeys, OPENAI_API_KEY_ENDPOINT: openaiKeyEndpoint, ...rest } = settings;
+                    setElectronSettings(prev => ({
+                        ...prev,
+                        ...rest,
+                        OPENAI_API_TEMPERATURE: String(rest.OPENAI_API_TEMPERATURE ?? '').trim() || DEFAULT_OPENAI_TEMPERATURE,
+                    }));
+                    setSavedElectronAiCredentials({
+                        AI_PROVIDER: settings.AI_PROVIDER === 'openai' ? 'openai' : 'gemini',
+                        GEMINI_API_KEY: configuredKeys?.GEMINI_API_KEY === true,
+                        OPENAI_API_KEY: configuredKeys?.OPENAI_API_KEY === true,
+                        OPENAI_API_KEY_ENDPOINT: typeof openaiKeyEndpoint === 'string' ? openaiKeyEndpoint : null,
+                    });
+                }
+                setElectronSettingsLoaded(true);
+                if (cacheDirectoryResult?.path) {
+                    setCacheDirectory(cacheDirectoryResult.path);
+                    setCacheDirectoryIsDefault(cacheDirectoryResult.isDefault);
+                }
+                if (electron.getUpdateStatus && updateAnswer.status === 'fulfilled') {
+                    setUpdateStatus(updateAnswer.value as ElectronUpdateStatus);
+                }
+                if (electron.getDiscordPresenceStatus && discordAnswer.status === 'fulfilled') {
+                    setDiscordPresenceStatus(discordAnswer.value as ElectronDiscordPresenceStatus);
+                }
+            });
+        });
+    }, []);
+
+    useEffect(() => {
+        if (!window.electron?.onUpdateStatusChanged) {
+            return;
+        }
+
+        return window.electron.onUpdateStatusChanged((status) => {
+            setUpdateStatus(status);
+        });
+    }, []);
+
+    useEffect(() => {
+        if (!window.electron?.onDiscordPresenceStatusChanged) {
+            return;
+        }
+
+        return window.electron.onDiscordPresenceStatusChanged((status) => {
+            setDiscordPresenceStatus(status);
+        });
+    }, []);
+
+    useEffect(() => {
+        if (!updateStatus?.availableVersion || updateStatus.updateSeen || !window.electron?.markUpdateSeen) {
+            return;
+        }
+
+        window.electron.markUpdateSeen(updateStatus.availableVersion).then(setUpdateStatus).catch(() => {
+            // Seeing the settings panel should never fail the panel itself.
+        });
+    }, [updateStatus?.availableVersion, updateStatus?.updateSeen]);
 
     const handleAuthorLabelClick = () => {
         setAuthorClickCount((prev) => {
@@ -271,6 +506,339 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
             return nextCount;
         });
+    };
+
+    const saveElectronSettings = async () => {
+        if ((window as any).electron) {
+            // What is saved is the number that was typed, so "0,7" is kept as 0.7 and the main process
+            // reads it as that; anything that is not a number from 0 to 2 falls back to the default.
+            const configuredTemperature = parseNumberText(electronSettings.OPENAI_API_TEMPERATURE);
+            const temperature = configuredTemperature !== null && configuredTemperature >= 0 && configuredTemperature <= 2
+                ? String(configuredTemperature)
+                : DEFAULT_OPENAI_TEMPERATURE;
+            setElectronSaveStatus('saving');
+            setElectronSettings(prev => ({ ...prev, OPENAI_API_TEMPERATURE: temperature }));
+            // Only a newly typed key is sent; an empty field keeps the saved one (clearing is its own action).
+            const geminiKeyDraft = electronSettings.GEMINI_API_KEY.trim();
+            const openaiKeyDraft = electronSettings.OPENAI_API_KEY.trim();
+            if (geminiKeyDraft) {
+                await (window as any).electron.saveSettings('GEMINI_API_KEY', geminiKeyDraft);
+            }
+            // URL before key: a new OpenAI-compatible key is bound to the URL saved at that moment.
+            await (window as any).electron.saveSettings('OPENAI_API_URL', electronSettings.OPENAI_API_URL);
+            if (openaiKeyDraft) {
+                await (window as any).electron.saveSettings('OPENAI_API_KEY', openaiKeyDraft);
+            }
+            await (window as any).electron.saveSettings('OPENAI_API_MODEL', electronSettings.OPENAI_API_MODEL);
+            await (window as any).electron.saveSettings('OPENAI_API_TEMPERATURE', temperature);
+            await (window as any).electron.saveSettings('OPENAI_API_STREAM', electronSettings.OPENAI_API_STREAM === true);
+            await (window as any).electron.saveSettings('GEMINI_API_MODEL', electronSettings.GEMINI_API_MODEL);
+            await (window as any).electron.saveSettings('AI_PROVIDER_PRESET', electronSettings.AI_PROVIDER_PRESET);
+            await (window as any).electron.saveSettings('AI_PROVIDER', electronSettings.AI_PROVIDER);
+            await (window as any).electron.saveSettings('USE_SYSTEM_PROXY_FOR_AI', electronSettings.USE_SYSTEM_PROXY_FOR_AI);
+            await (window as any).electron.saveSettings('ENABLE_UPDATE_CHECK', electronSettings.ENABLE_UPDATE_CHECK);
+            await (window as any).electron.saveSettings('ENABLE_AUTO_UPDATE', electronSettings.ENABLE_AUTO_UPDATE);
+            await (window as any).electron.saveSettings('UPDATE_CHANNEL', electronSettings.UPDATE_CHANNEL);
+            const savedSettings = await (window as any).electron.saveSettings('DISCORD_RICH_PRESENCE_ENABLED', electronSettings.DISCORD_RICH_PRESENCE_ENABLED);
+            const configuredKeys = savedSettings?.AI_API_KEYS_CONFIGURED;
+            setSavedElectronAiCredentials({
+                AI_PROVIDER: electronSettings.AI_PROVIDER === 'openai' ? 'openai' : 'gemini',
+                GEMINI_API_KEY: configuredKeys?.GEMINI_API_KEY === true,
+                OPENAI_API_KEY: configuredKeys?.OPENAI_API_KEY === true,
+                OPENAI_API_KEY_ENDPOINT: typeof savedSettings?.OPENAI_API_KEY_ENDPOINT === 'string'
+                    ? savedSettings.OPENAI_API_KEY_ENDPOINT
+                    : null,
+            });
+            // Drop the saved drafts so the field goes back to the "saved" placeholder; keep anything typed meanwhile.
+            setElectronSettings(prev => ({
+                ...prev,
+                GEMINI_API_KEY: prev.GEMINI_API_KEY.trim() === geminiKeyDraft ? '' : prev.GEMINI_API_KEY,
+                OPENAI_API_KEY: prev.OPENAI_API_KEY.trim() === openaiKeyDraft ? '' : prev.OPENAI_API_KEY,
+            }));
+            setElectronSaveStatus('saved');
+            setTimeout(() => setElectronSaveStatus('idle'), 2000);
+        }
+    };
+
+    const handleClearAiApiKey = async (key: 'GEMINI_API_KEY' | 'OPENAI_API_KEY') => {
+        if (!window.electron?.saveSettings) {
+            return;
+        }
+        const settings = await window.electron.saveSettings(key, '');
+        setSavedElectronAiCredentials(prev => ({
+            ...prev,
+            [key]: settings?.AI_API_KEYS_CONFIGURED?.[key] === true,
+            OPENAI_API_KEY_ENDPOINT: typeof settings?.OPENAI_API_KEY_ENDPOINT === 'string' ? settings.OPENAI_API_KEY_ENDPOINT : null,
+        }));
+        setElectronSettings(prev => ({ ...prev, [key]: '' }));
+    };
+
+    const handleToggleDiscordPresence = async (enabled: boolean) => {
+        const nextSettings = {
+            ...electronSettings,
+            DISCORD_RICH_PRESENCE_ENABLED: enabled,
+        };
+        setElectronSettings(nextSettings);
+        await window.electron?.saveSettings?.('DISCORD_RICH_PRESENCE_ENABLED', enabled);
+        const status = await window.electron?.getDiscordPresenceStatus?.();
+        if (status) {
+            setDiscordPresenceStatus(status);
+        }
+    };
+
+    const handleToggleUpdateCheck = async () => {
+        if (!window.electron?.saveSettings) {
+            return;
+        }
+
+        const nextEnabled = !electronSettings.ENABLE_UPDATE_CHECK;
+        const nextSettings = {
+            ...electronSettings,
+            ENABLE_UPDATE_CHECK: nextEnabled,
+            ENABLE_AUTO_UPDATE: nextEnabled ? electronSettings.ENABLE_AUTO_UPDATE : false,
+        };
+
+        setElectronSettings(nextSettings);
+        await window.electron.saveSettings('ENABLE_UPDATE_CHECK', nextSettings.ENABLE_UPDATE_CHECK);
+        if (!nextSettings.ENABLE_AUTO_UPDATE) {
+            await window.electron.saveSettings('ENABLE_AUTO_UPDATE', false);
+        }
+
+        const status = await window.electron.getUpdateStatus?.();
+        if (status) {
+            setUpdateStatus(status);
+        }
+    };
+
+    const handleToggleAutoUpdate = async () => {
+        if (!window.electron?.saveSettings || !electronSettings.ENABLE_UPDATE_CHECK || !updateStatus?.autoUpdateSupported) {
+            return;
+        }
+
+        const nextEnabled = !electronSettings.ENABLE_AUTO_UPDATE;
+        setElectronSettings({ ...electronSettings, ENABLE_AUTO_UPDATE: nextEnabled });
+        await window.electron.saveSettings('ENABLE_AUTO_UPDATE', nextEnabled);
+
+        const status = await window.electron.getUpdateStatus?.();
+        if (status) {
+            setUpdateStatus(status);
+        }
+    };
+
+    const handleUpdateChannelChange = async (channel: 'realeco' | 'limo' | 'cielo') => {
+        if (!window.electron?.saveSettings) {
+            return;
+        }
+
+        setElectronSettings((current) => ({ ...current, UPDATE_CHANNEL: channel }));
+        await window.electron.saveSettings('UPDATE_CHANNEL', channel);
+
+        const status = await window.electron.getUpdateStatus?.();
+        if (status) {
+            setUpdateStatus(status);
+        }
+    };
+
+
+    const handleCheckForUpdates = async () => {
+        if (!window.electron?.checkForUpdates) {
+            return;
+        }
+
+        const status = await window.electron.checkForUpdates();
+        setUpdateStatus(status);
+    };
+
+    const handleDownloadUpdate = async () => {
+        if (!window.electron?.downloadUpdate) {
+            return;
+        }
+
+        const status = await window.electron.downloadUpdate();
+        setUpdateStatus(status);
+    };
+
+    const handleInstallUpdate = async () => {
+        await window.electron?.quitAndInstallUpdate?.();
+    };
+
+    const handleOpenChinaDownload = () => openOutsideLink(QUARK_DOWNLOAD_URL);
+    const handleOpenBaiduDownload = () => openOutsideLink(BAIDU_DOWNLOAD_URL);
+
+    // Navidrome Settings State
+    // One truth: this used to be a second copy kept in step with App.tsx's by hand.
+    const navidromeEnabled = useLibraryStore(state => state.navidromeEnabled);
+    const [navidromeUrl, setNavidromeUrl] = useState('');
+    const [navidromeUsername, setNavidromeUsername] = useState('');
+    const [navidromePassword, setNavidromePassword] = useState('');
+    const [navidromeTestStatus, setNavidromeTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
+    const [navidromeConfigured, setNavidromeConfigured] = useState(false);
+    const [navidromeServerProfile, setNavidromeServerProfile] = useState<NavidromeServerProfile | null>(null);
+    // Docker 部署预置了凭据时，手动配置可以随时切回预置。
+    const [navidromePresetAvailable, setNavidromePresetAvailable] = useState(false);
+    const [navidromeUsesPreset, setNavidromeUsesPreset] = useState(false);
+    const [navidromeRestoreFailed, setNavidromeRestoreFailed] = useState(false);
+    const [navidromeRestoring, setNavidromeRestoring] = useState(false);
+
+    // Load Navidrome config on mount
+    useEffect(() => {
+        const config = getNavidromeConfig();
+        if (config) {
+            setNavidromeUrl(config.serverUrl);
+            setNavidromeUsername(config.username);
+            setNavidromeConfigured(true);
+            setNavidromeServerProfile(getCachedNavidromeServerProfile());
+            setNavidromeUsesPreset(getNavidromeConfigOrigin() === 'server');
+        }
+
+        let cancelled = false;
+        void fetchNavidromeServerPreset().then((preset) => {
+            if (!cancelled) setNavidromePresetAvailable(Boolean(preset));
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const refreshServerProfile = (config: NavidromeConfig) => {
+        void refreshNavidromeServerProfile(config)
+            .then(setNavidromeServerProfile)
+            .catch((error) => {
+                console.warn('[Settings] Failed to refresh Navidrome server profile:', error);
+                setNavidromeServerProfile(null);
+            });
+    };
+
+    // Test Navidrome connection
+    const testNavidromeConnection = async () => {
+        if (!navidromeUrl || !navidromeUsername || !navidromePassword) {
+            setNavidromeTestStatus('failed');
+            return;
+        }
+
+        setNavidromeTestStatus('testing');
+        const config: NavidromeConfig = {
+            serverUrl: navidromeUrl.replace(/\/$/, ''), // Remove trailing slash
+            username: navidromeUsername,
+            passwordHash: hashPassword(navidromePassword)
+        };
+
+        const success = await navidromeApi.ping(config);
+        if (success) {
+            // 先按手动配置立刻存下，不让预置请求挡住保存；填的正好是预置的话，预置返回后再改标。
+            saveNavidromeConfig(config);
+            setNavidromeConfigured(true);
+            setNavidromeUsesPreset(false);
+            setNavidromeTestStatus('success');
+            refreshServerProfile(config);
+            void markNavidromeConfigAsPresetIfMatching(config).then((marked) => {
+                if (marked) setNavidromeUsesPreset(true);
+            });
+        } else {
+            setNavidromeTestStatus('failed');
+        }
+    };
+
+    // Toggle Navidrome enabled
+    const handleToggleNavidromeEnabled = (enabled: boolean) => {
+        setNavidromeEnabled(enabled);
+        setNavidromeEnabledState(enabled);
+        if (onToggleNavidrome) {
+            onToggleNavidrome(enabled);
+        }
+    };
+
+    // Clear Navidrome config
+    const handleClearNavidrome = () => {
+        clearNavidromeConfig();
+        dismissNavidromeServerPreset();
+        setNavidromeUrl('');
+        setNavidromeUsername('');
+        setNavidromePassword('');
+        setNavidromeConfigured(false);
+        setNavidromeUsesPreset(false);
+        setNavidromeServerProfile(null);
+        setNavidromeTestStatus('idle');
+    };
+
+    // Drop the manual config and go back to the Docker preset
+    const handleRestoreNavidromePreset = async () => {
+        if (navidromeRestoring) return;
+        setNavidromeRestoreFailed(false);
+        setNavidromeRestoring(true);
+        const config = await restoreNavidromeServerPreset().finally(() => setNavidromeRestoring(false));
+        if (!config) {
+            setNavidromeRestoreFailed(true);
+            return;
+        }
+        setNavidromeUrl(config.serverUrl);
+        setNavidromeUsername(config.username);
+        setNavidromePassword('');
+        setNavidromeConfigured(true);
+        setNavidromeUsesPreset(true);
+        setNavidromeTestStatus('idle');
+        setNavidromeServerProfile(getCachedNavidromeServerProfile());
+        refreshServerProfile(config);
+    };
+
+    const formatBytes = (bytes: number) => {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+
+    const applyCacheUsage = (usage: Awaited<ReturnType<typeof getCacheUsageByCategory>>) => {
+        setCacheSizes({
+            playlist: formatBytes(usage.playlist),
+            lyrics: formatBytes(usage.lyrics),
+            cover: formatBytes(usage.cover),
+            media: formatBytes(usage.media),
+            analysis: formatBytes(usage.analysis),
+            volumeBalance: formatBytes(usage.volumeBalance)
+        });
+        setMediaCount(usage.mediaCount);
+    };
+
+    const fetchCacheUsage = async () => {
+        applyCacheUsage(await getCacheUsageByCategory());
+    };
+
+    useEffect(() => {
+        if (activeTab === 'options') {
+            // Like the answers above, it lands while the window is opening.
+            void getCacheUsageByCategory().then(usage => startTransition(() => applyCacheUsage(usage)));
+        }
+    }, [activeTab]);
+
+    const handleClear = async (category: CacheCategory) => {
+        setIsCleaning(category);
+        // 智能平衡's readings held in memory go with its stored ones, or they would be written back. First, so
+        // a write already sent lands before the clear and none is sent after it.
+        if (category === 'volumeBalance') clearBalanceRuntime();
+        await clearCacheByCategory(category);
+        // The drum hits' memory of which tracks are stored goes with the stored analyses.
+        if (category === 'analysis') forgetSettledDrumHits();
+        await fetchCacheUsage();
+        setIsCleaning(null);
+    };
+
+    const handleChooseCacheDirectory = async () => {
+        if (!(window as any).electron) {
+            return;
+        }
+
+        setCacheDirectoryStatus('choosing');
+        try {
+            const result = await (window as any).electron.chooseCacheDirectory();
+            if (result?.path) {
+                setCacheDirectory(result.path);
+                setCacheDirectoryIsDefault(result.isDefault);
+            }
+        } finally {
+            setCacheDirectoryStatus('idle');
+        }
     };
 
     // const isDaylight = theme?.name === 'Daylight Default'; // Deprecated, passed as prop
@@ -539,6 +1107,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     };
 
 
+    useGlass();
     return (
         <motion.div
             initial={{ opacity: 0 }}
@@ -560,7 +1129,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 role="dialog"
                 aria-modal="true"
                 aria-label={t('options.settingsWindowName')}
-                className="st-window relative flex h-[90vh] w-full flex-col overflow-hidden rounded-2xl bg-[var(--st-win)] text-[color:var(--st-t1)] shadow-[0_36px_90px_rgba(0,0,0,0.5),0_0_0_1px_var(--st-line2)] md:grid md:h-[86vh] md:w-[960px] md:grid-cols-[212px_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)]"
+                className="st-window backdrop-blur-[40px] relative flex h-[90vh] w-full flex-col overflow-hidden rounded-2xl bg-[var(--st-win)]/60 text-[color:var(--st-t1)] shadow-[0_36px_90px_rgba(0,0,0,0.5),0_0_0_1px_var(--st-line2)] md:grid md:h-[86vh] md:w-[960px] md:grid-cols-[212px_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)]"
                 style={{ ...settingsTokens(isDaylight, theme), ...kitMotionTokens(reducedKitMotion) }}
                 onClick={(event) => event.stopPropagation()}
             >
@@ -577,7 +1146,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         }}
                         isWide={isWideSettingsLayout}
                     />
-                    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--st-win)]">
                         <PageHeader
                             title={isSearching
                                 ? t('options.settingsSearchTitle')
@@ -642,13 +1211,166 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     )}
                 </AnimatePresence>
             </motion.div>
-            <SettingsSubWindows
+            <AnimatePresence>
+                {showVisPlayground && (
+                    <VisPlayground
+                        theme={theme}
+                        isDaylight={isDaylight}
+                        visualizerMode={visualizerMode}
+                        initialEditSection={initialVisualizerSection ?? 'visualizer'}
+                        visualizerOpacity={visualizerOpacity}
+                        staticMode={staticMode}
+                        backgroundConfig={{
+                            mode: visualizerBackgroundMode,
+                            transparent: transparentPlayerBackground,
+                            common: {
+                                useCoverColorBg,
+                                opacity: backgroundOpacity,
+                                disableVignette: disableVisualizerVignette,
+                                disableGeometricBackground: disableVisualizerGeometricBackground,
+                            },
+                            customImage: monetBackgroundImage,
+                            ...backgroundTuningConfig(visualizerSettings),
+                            url: {
+                                items: urlBackgroundList,
+                                selectedId: urlBackgroundSelectedId,
+                            },
+                        }}
+                        backgroundActions={{
+                            onModeChange: onVisualizerBackgroundModeChange,
+                            common: {
+                                onCoverColorChange: onToggleCoverColorBg,
+                                onOpacityChange: setBackgroundOpacity,
+                                onDisableVignetteChange: onToggleDisableVisualizerVignette,
+                                onDisableGeometricChange: onToggleDisableVisualizerGeometricBackground,
+                            },
+                            customImage: {
+                                onUpload: onUploadMonetBackgroundImage,
+                                onClear: onClearMonetBackgroundImage,
+                                isLoading: isLoadingMonetBackgroundImage,
+                            },
+                            url: {
+                                onAdd: onAddUrlBackgroundItem,
+                                onUpdate: onUpdateUrlBackgroundItem,
+                                onDelete: onDeleteUrlBackgroundItem,
+                                onSelect: onSetUrlBackgroundSelectedId,
+                            },
+                        }}
+                        hideTranslationSubtitle={hidePlayerTranslationSubtitle}
+                        showSubtitleTranslation={showSubtitleTranslation}
+                        subtitleContentMode={subtitleContentMode}
+                        subtitleOverlayLayout={subtitleOverlayLayout}
+                        subtitleOverlayOpacity={subtitleOverlayOpacity}
+                        subtitleOverlayBackground={subtitleOverlayBackground}
+                        subtitleUpcomingLyricsBlur={subtitleUpcomingLyricsBlur}
+                        showHarmonySubtitle={showHarmonySubtitle}
+                        harmonySubtitleBackground={harmonySubtitleBackground}
+                        fontStyle={lyricsFontStyle}
+                        fontScale={lyricsFontScale}
+                        subtitleFontScale={subtitleFontScale}
+                        fontWeight={lyricsFontWeight}
+                        customFontFamily={lyricsCustomFontFamily}
+                        customFontLabel={lyricsCustomFontLabel}
+                        fontFallbackFamilies={lyricsFontFallbackFamilies}
+                        subtitleFontInheritsLyrics={subtitleFontInheritsLyrics}
+                        subtitleFontStyle={subtitleFontStyle}
+                        subtitleFontWeight={subtitleFontWeight}
+                        subtitleFontFamily={subtitleFontFamily}
+                        subtitleFontFallbackFamilies={subtitleFontFallbackFamilies}
+                        onFontStyleChange={onLyricsFontStyleChange}
+                        onFontScaleChange={onLyricsFontScaleChange}
+                        onSubtitleFontScaleChange={onSubtitleFontScaleChange}
+                        onFontWeightChange={onLyricsFontWeightChange}
+                        onCustomFontChange={onLyricsCustomFontChange}
+                        onUploadCustomFont={onLyricsCustomFontUpload}
+                        onFontFallbackFamiliesChange={onLyricsFontFallbackFamiliesChange}
+                        onSubtitleFontInheritsLyricsChange={onSubtitleFontInheritsLyricsChange}
+                        onSubtitleFontStyleChange={onSubtitleFontStyleChange}
+                        onSubtitleFontWeightChange={onSubtitleFontWeightChange}
+                        onSubtitleFontFamilyChange={onSubtitleFontFamilyChange}
+                        onSubtitleFontFallbackFamiliesChange={onSubtitleFontFallbackFamiliesChange}
+                        onVisualizerModeChange={onVisualizerModeChange}
+                        onVisualizerOpacityChange={setVisualizerOpacity}
+                        onToggleHideTranslationSubtitle={onToggleHidePlayerTranslationSubtitle}
+                        onToggleShowSubtitleTranslation={onToggleShowSubtitleTranslation}
+                        onSubtitleContentModeChange={onSubtitleContentModeChange}
+                        onSubtitleOverlayLayoutChange={onSubtitleOverlayLayoutChange}
+                        onSubtitleOverlayOpacityChange={setSubtitleOverlayOpacity}
+                        onToggleSubtitleOverlayBackground={onToggleSubtitleOverlayBackground}
+                        onToggleSubtitleUpcomingLyricsBlur={onToggleSubtitleUpcomingLyricsBlur}
+                        onToggleShowHarmonySubtitle={onToggleShowHarmonySubtitle}
+                        onToggleHarmonySubtitleBackground={onToggleHarmonySubtitleBackground}
+                        onClose={() => closeSubviewOrModal(() => setShowVisPlayground(false))}
+                    />
+                )}
+            </AnimatePresence>
+            <AnimatePresence>
+                {showThemePark && (
+                    <ThemePark
+                        initialTheme={themeParkInitialTheme}
+                        isDaylight={isDaylight}
+                        visualizerMode={visualizerMode}
+                        visualizerTunings={visualizerTunings}
+                        staticMode={staticMode}
+                        visualizerOpacity={visualizerOpacity}
+                        backgroundConfig={{
+                            mode: visualizerBackgroundMode,
+                            common: {
+                                useCoverColorBg,
+                                opacity: backgroundOpacity,
+                                disableVignette: disableVisualizerVignette,
+                                disableGeometricBackground: disableVisualizerGeometricBackground,
+                            },
+                            customImage: monetBackgroundImage,
+                            ...backgroundTuningConfig(visualizerSettings),
+                            url: {
+                                items: urlBackgroundList,
+                                selectedId: urlBackgroundSelectedId,
+                            },
+                        }}
+                        cappellaCustomEmojiImages={cappellaCustomEmojiImages}
+                        cappellaCustomAvatarImages={cappellaCustomAvatarImages}
+                        monetPortraitImage={monetPortraitImage}
+                        showSubtitleTranslation={showSubtitleTranslation}
+                        subtitleContentMode={subtitleContentMode}
+                        subtitleOverlayLayout={subtitleOverlayLayout}
+                        lyricsFontStyle={lyricsFontStyle}
+                        lyricsFontScale={lyricsFontScale}
+                        lyricsFontWeight={lyricsFontWeight}
+                        lyricsCustomFontFamily={lyricsCustomFontFamily}
+                        onSaveCustomTheme={(dualTheme) => {
+                            onSaveCustomTheme(dualTheme);
+                            setShowThemePark(false);
+                        }}
+                        onSaveAiTheme={(dualTheme, song, songKey) => {
+                            onSaveAiTheme(dualTheme, song, songKey);
+                            setShowThemePark(false);
+                        }}
+                        onClose={() => closeSubviewOrModal(() => setShowThemePark(false))}
+                    />
+                )}
+            </AnimatePresence>
+
+            <LyricFilterSettingsModal
+                isOpen={showLyricFilterSettings}
                 isDaylight={isDaylight}
                 theme={theme}
                 initialVisualizerSection={initialVisualizerSection}
                 themeParkInitialTheme={themeParkInitialTheme}
                 currentSongTitle={currentSongTitle}
-                currentLyrics={currentLyrics}
+                initialRules={lyricLineRules}
+                initialStaffPolicy={lyricStaffPolicy}
+                initialStaffMinDwellSeconds={lyricStaffMinDwellSeconds}
+                initialStaffAbsorbMode={lyricStaffAbsorbMode}
+                initialStaffPattern={lyricStaffPattern}
+                loadPreviewLyrics={loadLyricFilterPreview}
+                onClose={() => closeSubviewOrModal(() => setShowLyricFilterSettings(false))}
+                onSave={onSaveLyricFilterPattern}
+            />
+            <GlobalLyricOffsetModal
+                isOpen={showGlobalLyricOffset}
+                isDaylight={isDaylight}
+                lyrics={currentLyrics}
                 lyricCurrentTime={lyricCurrentTime}
                 loadLyricFilterPreview={loadLyricFilterPreview}
                 onSaveLyricFilterPattern={onSaveLyricFilterPattern}

@@ -18,6 +18,7 @@ export const BUILTIN_VISUALIZER_MODES = [
     'claddagh',
     'classic',
     'diorama',
+    'nebbia',
     'fume',
     'hanabi',
     'kinetic',
@@ -41,6 +42,7 @@ export const BUILTIN_VISUALIZER_BACKGROUND_MODES = [
     'nomand',
     'sora',
     'url',
+    'transparent',
 ] as const;
 
 export const DEFAULT_VISUALIZER_MODE: VisualizerMode = 'classic';

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ReplayGainInfo, ReplayGainMode } from '../../types';
+import { useIsHifiRoute } from '../hifi/useHifiSignalPath';
 import { PanelRow } from './shell/PanelRow';
 import { Segments } from './shell/Segments';
 
@@ -22,6 +23,8 @@ const ReplayGainControl: React.FC<ReplayGainControlProps> = ({
     onChangeMode,
 }) => {
     const { t } = useTranslation();
+    // mpv plays the song on the HiFi route and applies no gain; the mode is kept for the web engine.
+    const isHifiRoute = useIsHifiRoute();
     const measured: string[] = [];
     if (typeof values?.trackGain === 'number') {
         measured.push(`${t('localMusic.replayGainTrack')} ${formatGain(values.trackGain)}`);
@@ -33,7 +36,9 @@ const ReplayGainControl: React.FC<ReplayGainControlProps> = ({
     return (
         <PanelRow
             label={t('localMusic.replayGainTitle')}
-            hint={measured.length > 0 ? measured.join(' · ') : t('localMusic.replayGainUnavailable')}
+            hint={isHifiRoute
+                ? [t('hifi.player.replayGainBypassed'), ...measured].join(' · ')
+                : measured.length > 0 ? measured.join(' · ') : t('localMusic.replayGainUnavailable')}
         >
             <Segments
                 fill

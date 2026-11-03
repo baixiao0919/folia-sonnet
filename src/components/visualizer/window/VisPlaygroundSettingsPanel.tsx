@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { type Theme, type SubtitleContentMode, type SubtitleOverlayLayout, type VisualizerBackgroundMode, type VisualizerMode } from '../../../types';
 import { Button, Group, PictureGrid, Reveal, Row, Segmented, Select, Tabs, Value, type PictureState } from '../../modal/settings/kit';
 import type { SettingsGroupDef } from '../../modal/settings/kit';

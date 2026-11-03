@@ -106,10 +106,8 @@ export const useNowPlayingCardPosition = (
         update({ x: left.get() + delta[0], y: top.get() + delta[1] });
     };
 
-    // positioning 不往外给：要用它的地方直接读 store（`isPositioning`），
-    // 从这里再导一份只是又一条会过期的副本。
     return {
-        save, cancel: finish, reset,
+        positioning, save, cancel: finish, reset,
         style: saved !== null || positioning ? { left, top } : { left: 24, bottom },
         handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp, onLostPointerCapture: () => { dragging.current = null; }, onKeyDown },
     };

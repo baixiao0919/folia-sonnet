@@ -58,7 +58,7 @@ const dropShadowAt = (color: string, inner: number, outer: number) => (
     + `drop-shadow(0 0 ${outer * DROP_SHADOW_RADIUS_SCALE}px ${color})`
 );
 
-/** text-shadow 光晕的半径，按出现方式分三档：[内, 外]。 */
+/** text-shadow halo radii per reveal mode: [inner, outer]. */
 const glowRadii = (wordRevealMode?: string | null): [number, number] => (
     wordRevealMode === 'instant' ? [14, 24] : wordRevealMode === 'fast' ? [18, 32] : [20, 40]
 );
@@ -100,8 +100,8 @@ const glowKeyframes = (color: string, inner: number, outer: number, peaks: numbe
 export const wordGlowVariants: Variants = {
     waiting: ({ activeColor = '', wordRevealMode }: WordGlowCustom) => (isGlowBlurQuantized()
         ? { color: 'transparent', opacity: 0, filter: 'none', transition: { duration: 0 } }
-        // 光晕一开始就按满半径摆好、靠 opacity 藏住，所以变 active 时只动 opacity。
-        // filter 也一起复位，给「开关刚关掉时还留着上一轮」的词用。
+        // The halo is already in place at full size, hidden by opacity, so turning active animates
+        // opacity only. filter resets too, for words left over from before the switch was turned off.
         : { color: 'transparent', textShadow: textShadowAt(activeColor, ...glowRadii(wordRevealMode)), opacity: 0, filter: 'none', transition: { duration: 0 } }),
     active: ({ activeColor = '', duration, index, total, charStartTime, charEndTime, wordStartTime, wordRevealMode }: WordGlowCustom) => {
         if (wordRevealMode === 'instant') {
@@ -162,7 +162,7 @@ export const wordGlowVariants: Variants = {
     passed: ({ activeColor = '', wordRevealMode }: WordGlowCustom) => {
         const transition = { duration: wordRevealMode === 'instant' ? 0.12 : wordRevealMode === 'fast' ? 0.22 : 0.9, ease: 'easeOut' as const };
         if (!isGlowBlurQuantized()) {
-            // 同样只让 opacity 收掉光晕，影子字符串保持不变 —— 不变就不会重新光栅化。
+            // Fade the halo out by opacity; the shadow string stays as it was so nothing re-rasters.
             return { color: 'transparent', textShadow: textShadowAt(activeColor, ...glowRadii(wordRevealMode)), opacity: 0, transition };
         }
         // Fade out from wherever the ramp is, shrinking the halo with it the way `none` used to. The

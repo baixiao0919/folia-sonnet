@@ -169,15 +169,16 @@ const MonetWordSweep: React.FC<{
             (isLineActive && status === 'passed') || lineStatus === 'passed' ? wordColor : baseColor,
         );
 
-        // 光晕单独占一层：强度固定在满值，靠 opacity 淡入淡出。直接插值 text-shadow 会让每个
-        // 发光的词每帧都重绘重光栅化（120Hz 的 Mac 上占了这个模式大部分光栅，GPU 进程每秒约 70ms）；
-        // opacity 在自己的合成层上由合成器处理。满强度时与旧光晕完全一致；低于满强度时，
-        // 光晕保持词色，而不是往底色那边靠。
+        // The glow is its own layer under the text: a halo fixed at full strength, faded by opacity.
+        // Interpolating the text-shadow itself repainted and re-rasterized every glowing word on every
+        // frame (on a 120 Hz Mac, most of this mode's raster and ~70 ms/s of GPU process); opacity on
+        // its own compositing layer is applied by the compositor. At full strength it is the old halo
+        // exactly; below it the halo keeps the word colour instead of leaning towards the base colour.
         const glowOpacity = useTransform(glowTime, latest => {
             if (!canRenderGlow || latest <= startTime) return 0;
             return Math.max(0, resolveMonetGlow(latest, startTime, endTime, lineRenderEndTime));
         });
-        // 只在亮着的时候给合成层，免得轨道上每个闲置的词都占一层。
+        // Composited only while it is lit, so idle words on the rail do not each hold a layer.
         const glowWillChange = useTransform(glowOpacity, opacity => (opacity > 0 ? 'opacity' : 'auto'));
         const glowHalo = useMemo(() => {
             const radiusOne = Math.round(fontPx * (isChorus ? 0.45 : 0.28));
@@ -204,7 +205,7 @@ const MonetWordSweep: React.FC<{
                         {text}
                     </motion.span>
                 ) : null}
-                {/* relative 让正文压在绝对定位的光晕层上面，和它当年压在自己影子上一样。 */}
+                {/* relative so the text paints above the absolutely positioned glow, as it did above its own shadow. */}
                 <motion.span className="relative" style={{ color: resolvedBaseColor }}>
                     {text}
                 </motion.span>

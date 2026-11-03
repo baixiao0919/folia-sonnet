@@ -40,7 +40,7 @@ const buildCoverRequestUrl = (coverUrl: string): string => {
     return coverUrl;
 };
 
-// 也在「从某首歌取一张集合封面」的地方用：那边只要一次远程封面的字节。
+// Also used where a remote cover's bytes are wanted once (a local collection cover taken from a song).
 export const fetchCoverBlob = async (coverUrl: string): Promise<Blob> => {
     const response = await fetch(buildCoverRequestUrl(coverUrl), { mode: 'cors' });
     if (response.ok === false) throw new Error(`Cover request failed: ${response.status}`);

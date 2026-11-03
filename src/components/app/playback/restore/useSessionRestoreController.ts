@@ -16,8 +16,7 @@ import { setPlayQueue, usePlaybackStore } from '../../../../stores/usePlaybackSt
 import { askedSongKeyRef, makeSongCurrent, startRestore } from '../currentSong';
 import { useAudioSettingsStore } from '../../../../stores/useAudioSettingsStore';
 import { isRestoredSongPlayable } from '../playableSong';
-import { readNativeQueueState } from '../../../../services/nativeQueueBridge';
-import { adoptNativePlaybackState } from './adoptNativePlaybackState';
+import { releaseUnclaimedHifiTrack } from '../../../../services/hifi/hifiPlayback';
 
 // src/components/app/playback/restore/useSessionRestoreController.ts
 
@@ -104,6 +103,9 @@ export function useSessionRestoreController({
             // itself is restored all the same.
             const writesAtStart = queueWritesAtMountRef.current;
             const rewritten = () => wholeQueueWritesSoFar() !== writesAtStart;
+            // Whether the remembered song went to restorePlaybackSourceForSong, which settles what an
+            // earlier window left playing in mpv itself (it takes it over, or stops it).
+            let handedToSourceRestore = false;
             try {
                 // WebView 重建不等于播放器重启：先问原生，不能把磁盘里的旧歌装回去。
                 const native = await readNativeQueueState();
@@ -198,6 +200,7 @@ export function useSessionRestoreController({
                 }
 
                 let outcome: RestorePlaybackSourceOutcome = 'failed';
+                handedToSourceRestore = true;
                 try {
                     outcome = await restorePlaybackSourceForSong(lastSong, {
                         audioQuality,
@@ -233,6 +236,10 @@ export function useSessionRestoreController({
                 void prefetchNearbySongs(lastSong, rewritten() ? usePlaybackStore.getState().playQueue : lastQueue || [lastSong], audioQuality, userId);
             } catch (error) {
                 console.error('Session restore failed', error);
+            } finally {
+                // Nothing to restore (no song remembered, a song already asked for, the file gone from the
+                // library, a Stage session): a track an earlier window left playing in mpv is nobody's now.
+                if (!handedToSourceRestore) releaseUnclaimedHifiTrack('nothing to restore');
             }
         };
 

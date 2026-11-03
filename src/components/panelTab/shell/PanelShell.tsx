@@ -9,6 +9,7 @@ import { FOLDED_PX } from './SongHeader';
 import { PANEL_BOTTOM_LIFT_PX } from './panelBottomBaseline';
 import { useIsShortViewport, useIsWideShortViewport } from './panelViewport';
 import { useMeasuredSize } from './useMeasuredSize';
+import { useGlass } from '@/shinoinject/useGlass';
 
 // src/components/panelTab/shell/PanelShell.tsx
 // The frame of the playing page's panel: where it sits, the glass surface, and how tall it is. The
@@ -123,36 +124,7 @@ const PanelSurface: React.FC<PanelSurfaceProps> = ({ hasHandle, isCover, tabKey,
     // Where the surface comes from and goes back to: a little smaller, toward the handle.
     const away = { opacity: 0, scale: 0.92 };
 
-    /* The tab's body: the hairline, then the open tab, which scrolls here when the window is short. */
-    const body = (
-        // As wide as the column, so the scrollbar (the kit's, as wide as the padding) lies in the surface's own padding.
-        <div
-            className="st-t-unfold flex min-h-0 shrink flex-col overflow-hidden transition-[height]"
-            style={isWideShort
-                // 竖轨模式下高度不写死（写死会把页签多出来的那点空间留白），只压一个上限：
-                // 内容超过可用高度时**页签自己滚**，而不是把整块面板推着滚（那样竖轨会跟着滚出去）。
-                ? {
-                    marginInline: -PADDING_PX,
-                    ...(isCover ? { height: 0 } : { maxHeight: `calc(var(--pn-tab-room) + ${BODY_TOP_TOTAL_PX}px)` }),
-                }
-                : { height: bodyHeight, marginInline: -PADDING_PX }}
-        >
-            <div
-                className="h-px shrink-0 bg-[var(--st-line)]"
-                style={{ marginTop: BODY_TOP_PX.gap, marginInline: PADDING_PX }}
-            />
-            <div
-                ref={scrollRef}
-                className="st-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
-                style={{ paddingTop: BODY_TOP_PX.under, paddingLeft: PADDING_PX }}
-            >
-                <div ref={contentRef} key={tabKey} className="st-page-in">
-                    {children}
-                </div>
-            </div>
-        </div>
-    );
-
+    useGlass();
     return (
         <motion.div
             ref={layoutRef}
@@ -160,6 +132,7 @@ const PanelSurface: React.FC<PanelSurfaceProps> = ({ hasHandle, isCover, tabKey,
             initial={away}
             animate={{ opacity: 1, scale: 1, transition: kitTransition('unfold', reduced) }}
             exit={{ ...away, transition: kitTransition('move', reduced) }}
+            data-glass data-glass-light
             data-testid="unified-panel-surface"
             data-still={isStill || undefined}
             className={`st-window pointer-events-auto @container hide-scrollbar flex max-w-[calc(100vw-2rem)] overflow-y-auto overflow-x-hidden rounded-[20px] bg-[var(--pn-glass)] text-[color:var(--st-t1)] shadow-[var(--pn-shadow)] backdrop-blur-[40px] backdrop-saturate-[1.3] [&[data-still]_*]:transition-none ${isWideShort ? 'flex-row' : 'flex-col'}`}
@@ -181,7 +154,18 @@ const PanelSurface: React.FC<PanelSurfaceProps> = ({ hasHandle, isCover, tabKey,
                 padding: PADDING_PX,
                 marginBottom: underPx,
                 // The centre of the handle, at the surface's right end.
-                transformOrigin: `calc(100% - 24px) calc(100% + ${underPx - 24}px)`,
+                  transformOrigin: `calc(100% - 24px) calc(100% + ${underPx - 24}px)`,
+                  backgroundColor: isDaylight
+                    ? "rgba(255,255,255,0.4)"
+                    : "rgba(0,0,0,0.4)",
+                  borderTop: isDaylight
+                    ? "1px solid rgba(0,0,0,0.08)"
+                    : "1px solid rgba(255,255,255,0.12)",
+                  borderBottom: isDaylight
+                    ? "1px solid rgba(0,0,0,0.08)"
+                    : "1px solid rgba(255,255,255,0.12)",
+                  outline: "1px solid rgba(40,40,40,0.2)",
+                  boxShadow: "2px 2px 8px 2px rgba(40,40,40,0.4)",
             } as MotionStyle}
         >
             {isWideShort ? (

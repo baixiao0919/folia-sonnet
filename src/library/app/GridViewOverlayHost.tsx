@@ -178,7 +178,7 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
     const [organizingFolder, setOrganizingFolder] = useState<LocalGridViewCollectionDescriptor | null>(null);
     const [matchingSongId, setMatchingSongId] = useState<string | null>(null);
     const [coverEditingCollection, setCoverEditingCollection] = useState<LocalGridViewCollectionDescriptor | null>(null);
-    // 本地集合的自定义封面（键 → URL）：盖在由曲目推出来的自动封面上。
+    // 本地集合的自定义封面（键 → URL）：盖在下面由曲目推出来的自动封面上。
     const localCollectionCoverUrls = useLocalCollectionCoverUrls();
     const selectedCollectionKey = collectionKey(selectedCollection);
     const refreshedSelectedCollection = useMemo(() => {
@@ -215,8 +215,8 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
         }
 
         // 设了自定义封面就用它（固定不变）；否则是由曲目推出来的自动封面。自动封面另外带着，画曲目的地方
-        // （Bravais 的专辑墙）用它：集合封面不影响集合里的歌。（自定义封面是 blob: 地址，
-        // getPersistentCoverUrl 不会把导航栈里带着的那张当成自动封面。）
+        // （Bravais 的专辑墙）用它：集合封面不影响集合里的歌。（自定义封面是 blob: 地址，getPersistentCoverUrl
+        // 不会把导航栈里带着的那张当成自动封面。）
         const automaticCoverUrl = resolvedLocalCollectionCoverUrl || getPersistentCoverUrl(liveSelectedCollection.coverUrl);
         const coverUrl = resolveLocalCollectionCover(liveSelectedCollection, automaticCoverUrl, localCollectionCoverUrls);
 

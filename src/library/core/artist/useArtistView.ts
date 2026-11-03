@@ -30,6 +30,7 @@ import { useLocalCollectionCoverUrls } from '../collection/cover/useLocalCollect
 // 热门歌曲的可播放 / 可入队集合，能力（core/artist/artistSurface 的纯规则）与「声明 ∩ 能力」，以及播放 / 入队 /
 // 范围 / 重新加载 / 续页 / 编辑 / 打开专辑这些动作和命令面板 surface 的 getState / run。
 // 快照由 suite 自己订阅后交进来（网格拖拽时会暂存后台分页，这里只读它给的那一份）。回调保持稳定，执行时读最新的值。
+// 本地歌手的专辑设了自定义封面的（core/collection/cover），albums 带的是那张封面（与首页、专辑页同一张）。
 
 const EMPTY_SONGS: SongResult[] = [];
 const EMPTY_ALBUMS: LibraryArtistAlbum[] = [];

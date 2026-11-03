@@ -42,6 +42,8 @@ interface NavidromeGrid3DViewProps {
     isDaylight: boolean;
     hasFloatingPlayer?: boolean;
     isInteractive?: boolean;
+    /** 是否是当前显示的一级页签。缓存（keep-alive）时非活动层为 false：只显示、不对外注册列表句柄。 */
+    isActive?: boolean;
 }
 
 export const NavidromeGrid3DView: React.FC<NavidromeGrid3DViewProps> = ({
@@ -57,6 +59,7 @@ export const NavidromeGrid3DView: React.FC<NavidromeGrid3DViewProps> = ({
     isDaylight,
     hasFloatingPlayer = false,
     isInteractive = true,
+    isActive = true,
 }) => {
     const { t } = useTranslation();
     const [localAlbumIndex, setLocalAlbumIndex] = useDebouncedFocusSync(focusedAlbumIndex, setFocusedAlbumIndex);
@@ -95,7 +98,7 @@ export const NavidromeGrid3DView: React.FC<NavidromeGrid3DViewProps> = ({
 
     // 首页模型交给 core 的首页 surface 句柄（探针与以后的命令面板读它，不读组件树）。
     useLibraryHomeListRegistration({
-        enabled: Boolean(config),
+        enabled: Boolean(config) && isActive,
         getState: (): LibraryHomeListState => ({
             tab: 'navidrome',
             directoryKey,

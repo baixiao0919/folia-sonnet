@@ -12,7 +12,7 @@ import { BravaisSeamFlipText } from './BravaisSeamFlip';
 import { useBravaisReducedTransitions } from './bravaisMotion';
 import { bravaisPopMotion, bravaisRevealMotion, seamPopAnchorFor } from './bravaisSeamMotion';
 import './bravaisCollection.css';
-import { Button } from '../../../components/ui';
+import { useGlass } from '@/shinoinject/useGlass';
 
 // src/library/suites/bravais/BravaisSeamCollection.tsx
 // 完整信息条里集合层的那几块（设计稿 §10.1 放置原则、§10.2、§10.6）：
@@ -142,7 +142,7 @@ export const BravaisSeamCollectionMenu: React.FC<{
         event.preventDefault();
         setIsOpen(false);
     };
-
+    useGlass();
     return (
         <>
             <div ref={anchorRef} className="bravais-seam-more-anchor" onKeyDown={onKeyDown}>
@@ -161,7 +161,7 @@ export const BravaisSeamCollectionMenu: React.FC<{
             </div>
             <AnimatePresence>
                 {isOpen && (
-                    <motion.div key="menu" className="bravais-seam-menu" role="menu" data-bravais-seam-menu {...pop}>
+                    <motion.div key="menu" data-glass className="bravais-seam-menu" role="menu" data-bravais-seam-menu {...pop}>
                         {items.map(item => (
                             <Button
                                 key={item.id}

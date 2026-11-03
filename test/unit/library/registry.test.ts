@@ -116,7 +116,7 @@ describe('library suite registry', () => {
         expect(resolveLibrarySurfaceActions('collection', 'grid').extraActions)
             .toEqual(['toggle-info-panel', 'toggle-track-list', 'toggle-edit-mode']);
         // TUI 实现了除 Navidrome「加入歌单 / 新建歌单」与本地集合「设置封面」以外的全部集合动作（前两个需要歌单选择器，
-        // 后者是宿主的弹窗，只在网格里）。
+        // 只在网格里；设置封面是图片对话框，TUI 冻结后不再加入口）。
         expect(resolveLibrarySurfaceActions('collection', 'tui')).toEqual({
             actions: [
                 'play', 'enqueue', 'play-scope', 'enqueue-scope', 'filter', 'sort', 'reload', 'resume-sync',

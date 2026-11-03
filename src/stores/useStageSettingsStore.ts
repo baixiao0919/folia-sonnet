@@ -62,7 +62,7 @@ export type StageSettingsState = {
     /** auto 模式下的显示时长（秒），3-60 */
     stageTrackPillTimeoutSec: number;
     stageTrackPillOnHome: boolean;
-    /** null = 保持原来贴在底部那条对齐；否则坐标相对可用视口。 */
+    /** null keeps the original bottom-bar alignment; otherwise coordinates are relative to the available viewport. */
     stageTrackPillPosition: NowPlayingCardPosition | null;
     handleSetStageTrackPillPosition: (position: NowPlayingCardPosition | null) => void;
     /** OBS 浏览器源有客户端连接时，主窗口是否继续渲染重动画（默认 false = 主窗口切到 still） */

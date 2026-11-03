@@ -8,7 +8,7 @@ import { colorWithAlpha } from '../../../utils/visualizer/colorMix';
 import { Button } from '../../ui';
 import { type VisualizerSharedProps } from '../definition';
 import { useVisualizerRuntime } from '../runtime';
-import { useVisualizerSettingsStore } from '../../../stores/useVisualizerSettingsStore';
+import { useLyricRenderQuality } from '../renderQuality/useLyricRenderQuality';
 import VisualizerShell from '../VisualizerShell';
 import { getLineRenderEndTime } from '../../../utils/lyrics/renderHints';
 import { resolveThemeFontStack, resolveThemeTranslationFontStack } from '../../../utils/fontStacks';
@@ -52,8 +52,9 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
         songHandoff = null,
     } = props;
     const { t } = useTranslation();
-    // 关键词着色是全局开关（useVisualizerSettingsStore），不再看莫奈自己的 tuning。
-    const keywordColoringEnabled = useVisualizerSettingsStore(state => state.keywordColoringEnabled);
+    // 底部音频条的分辨率倍数（#929）：全局挡位叠上这个样式的覆盖；预览不跟。
+    const renderQuality = useLyricRenderQuality(monetTuning.render);
+    const audioRenderScale = isPreviewMode ? 1 : renderQuality.scale;
 
     // Through a blend the words stay on the song on screen until the audio crossover, then show the
     // incoming one (monetSongHandoff.ts). Held as state so the hand-off's every frame renders nothing.
@@ -238,8 +239,9 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
             )}
 
             <div ref={shellRef} className="relative z-10 flex h-full w-full items-center justify-center overflow-hidden">
+                {/* Not clipped: the cover's shadow reaches past the row's edge, and the shell above clips at the screen. */}
                 <div
-                    className="flex h-full w-full flex-row items-center overflow-hidden"
+                    className="flex h-full w-full flex-row items-center"
                     style={{ maxWidth: `${rowMaxWidthPx}px` }}
                 >
                     {showText && (
@@ -563,6 +565,28 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
                 </div>
             </div>
 
+            {showText && monetTuning.showAudioVisualization && (
+                <motion.div
+                    key={`audio-${introKey}`}
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 1.2, ease: [0.25, 1, 0.5, 1], delay: 0.8 }}
+                    className="absolute bottom-0 left-0 z-20 h-10 overflow-hidden px-5 sm:px-8 lg:px-14"
+                    style={{ width: 'min(450px, 55vw)' }}
+                >
+                    <div className="h-full w-full">
+                        <AudioOverlay
+                            audioPower={audioPower}
+                            audioBands={audioBands}
+                            theme={theme}
+                            mode={monetTuning.audioStyle}
+                            staticMode={staticMode}
+                            isPreviewMode={isPreviewMode}
+                            renderScale={audioRenderScale}
+                        />
+                    </div>
+                </motion.div>
+            )}
         </VisualizerShell>
     );
 };

@@ -17,7 +17,7 @@ import { colorWithAlpha } from '../../../utils/visualizer/colorMix';
 import { type PreviewPlaceholderId } from '../PreviewPlaceholder';
 import { VISUALIZER_REGISTRY, getVisualizerModeLabel, getVisualizerRegistryEntry } from '../registry';
 import VisPlaygroundPreviewHotspots, { type VisPlaygroundEditSection, type VisPlaygroundHotspotSection } from './VisPlaygroundPreviewHotspots';
-import VisPlaygroundSampleStage from './VisPlaygroundSampleStage';
+import VisPlaygroundSampleStage, { SampleBox } from './VisPlaygroundSampleStage';
 import VisPlaygroundSettingsPanel from './VisPlaygroundSettingsPanel';
 import FontPicker, { type LocalFontEntry } from './FontPicker';
 import FontMarketDialog from '../../modal/FontMarketDialog';
@@ -188,13 +188,13 @@ const VisPlayground: React.FC<VisPlaygroundProps> = ({
     const [isPreviewPaused, setIsPreviewPaused] = useState(false);
     const [previewSource, setPreviewSource] = useState<PreviewSource>('builtin');
     const previewBoxRef = useRef<HTMLDivElement>(null);
-    // 内置示例让位给「实时」时，这里放播放器现在显示的内容；没有歌词就是 null。
+    // What the player shows now, when the sample is set aside for it; null while it has no lyrics.
     const livePreview = useLivePreviewFeed({ enabled: previewSource === 'live', paused: isPreviewPaused, stageRef: previewBoxRef });
     const live = livePreview.content;
-    // 内置示例的时钟；右边那一列小图也跟着它。实时画面在画的时候它歇着。
-    const previewClock = usePreviewClock({ mode: visualizerMode, placeholderId: previewPlaceholderId, paused: isPreviewPaused || live !== null });
+    // The small pictures still use the sample's clock while the big preview shows the live picture.
+    const previewClock = usePreviewClock({ mode: visualizerMode, placeholderId: previewPlaceholderId, paused: isPreviewPaused });
     const previewPlaceholder = previewClock.placeholder;
-    // 示例暂停时时间不动，而刚挂上去的样式要一次变化才会画出来（从实时切回来时就是这种情况）。
+    // The sample, paused, has no change of time for a style mounted anew (a switch from the live picture).
     useStillClockPulse({ time: previewClock.currentTime, still: isPreviewPaused && live === null, boxRef: previewBoxRef, restartKey: previewSource });
     const shown = live
         ? {
@@ -219,7 +219,8 @@ const VisPlayground: React.FC<VisPlaygroundProps> = ({
             lines: previewPlaceholder.lines,
             songTitle: previewPlaceholder.title,
             coverUrl: previewPlaceholder.coverUrl,
-            // 一个示例歌一个 seed，和播放器按歌给 seed 一样：跟着样式变的 seed 会让背景每次切换重排。
+            // One seed per sample song, as the player's is the song's: a seed that changed
+            // with the style would lay the background out again on every switch.
             seed: `vis-playground-${previewPlaceholderId}`,
         };
     const [fontPickerTarget, setFontPickerTarget] = useState<'lyrics' | 'subtitle' | 'none'>('none');
@@ -512,16 +513,11 @@ const VisPlayground: React.FC<VisPlaygroundProps> = ({
 
     const stage = (
         <>
-            {/*
-             * The sample always shows the theme being previewed, whatever the window's own colours.
-             *
-             * `max-h`：窄窗口（手机）时预览和参数区是上下排的，`flex-1` 会把剩下的高度全吃
-             * 掉，参数那一栏被挤成一条 —— 滑块只有几像素高，根本拖不动。给预览封个顶，多出来
-             * 的高度就让给下面那栏。
-             */}
-            <div
+            {/* The sample always shows the theme being previewed, whatever the window's own colours. */}
+            <SampleBox
                 ref={previewBoxRef}
-                className="relative min-h-[150px] max-h-[38vh] flex-1 overflow-hidden rounded-xl shadow-[0_0_0_1px_var(--st-line)]"
+                room="min-h-[160px] flex-1"
+                className="relative overflow-hidden rounded-xl shadow-[0_0_0_1px_var(--st-line)]"
                 style={{ backgroundColor: previewTheme.backgroundColor }}
             >
                 {/* The style is drawn as large as the app's window and scaled to fit. */}
@@ -589,7 +585,7 @@ const VisPlayground: React.FC<VisPlaygroundProps> = ({
                         {isPreviewPaused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
                     </Button>
                 </Tooltip>
-            </div>
+            </SampleBox>
             <div className="flex shrink-0 flex-col">
                 <h3 className="mb-2 flex min-h-6 items-center px-1 text-[13px] font-semibold leading-5 text-[color:var(--st-t2)]">
                     {t('options.lyricStyles')}

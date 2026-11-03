@@ -7,6 +7,7 @@ import { useTypographySettingsStore } from '../../stores/useTypographySettingsSt
 import { useThemeSettingsStore } from '../../stores/useThemeSettingsStore';
 import { useStageSettingsStore } from '../../stores/useStageSettingsStore';
 import { useLibraryWallLookStore } from '../../stores/useLibraryWallLookStore';
+import { useLiquidGlassSettingsStore } from '../../stores/useLiquidGlassSettingsStore';
 import { usePlayerChromeSettingsStore } from '../../stores/usePlayerChromeSettingsStore';
 
 // src/services/obs/visualSettingsConfig.ts
@@ -18,6 +19,7 @@ export function buildVisualSettingsConfig(): Record<string, unknown> {
   const storeThemeSettings = useThemeSettingsStore.getState();
   const storeTypographySettings = useTypographySettingsStore.getState();
   const storeVisualizer = useVisualizerSettingsStore.getState();
+  const storeLiquidGlass = useLiquidGlassSettingsStore.getState();
   // The song-theme automation flags live in theme preferences, not the settings store. The overlay
   // ignores them, but a copied OBS URL is also a restore payload (the import box accepts one), so
   // dropping them here would silently lose both toggles on re-import. Auto-generate is ANDed with
@@ -116,8 +118,17 @@ export function buildVisualSettingsConfig(): Record<string, unknown> {
     // Which way the info strip opens (a column split, a row split across the wall, or by the screen's
     // shape): part of the wall's look, no user exception.
     libraryWallSeamDirection: useLibraryWallLookStore.getState().seamDirection,
-    // 播放页标题栏后面那层磨砂底：属于播放页的样子，不给用户例外。OBS 覆盖层不画标题栏，用不上它，
-    // 但它跟着一起走，导出的「样子」才是完整的。
+    // 流体玻璃的四个全局数值参数 + 光效 / 果冻两个效果开关：视觉调参，随共享外观一起走（2026-10-12）。
+    liquidGlass: {
+      strength: storeLiquidGlass.strength,
+      blur: storeLiquidGlass.blur,
+      sat: storeLiquidGlass.sat,
+      bend: storeLiquidGlass.bend,
+      light: storeLiquidGlass.light,
+      jelly: storeLiquidGlass.jelly,
+    },
+    // The frosted bar behind the player page's titlebar: a look of the player page, no user exception.
+    // The OBS overlay draws no titlebar and ignores it; it rides along so a copied look keeps it.
     playerHeaderBlur: usePlayerChromeSettingsStore.getState().playerHeaderBlur,
   };
 }

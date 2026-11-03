@@ -9,8 +9,8 @@ import {
 } from '@/utils/libraryWallSeamDirection';
 
 // test/unit/utils/libraryWallSeamDirection.test.ts
-// bravais 信息条方向的取值规则：四个取值（自动 / 自动（反向）/ 竖向 / 横向）、默认自动（反向）、非法值回默认；
-// 两个自动都只看视口形状（高 ≥ 宽 × 1.1），「自动（反向）」把结果反过来。
+// bravais 信息条方向的取值规则：四个取值、默认自动、非法值回默认；自动时只有明显竖着的视口（高 ≥ 宽 × 1.1）开横条，
+// 自动（反向）正好反过来。
 
 /** 按 CSS 的 max-aspect-ratio 语义算这条查询在某个视口上命不命中（宽 / 高 ≤ 比值）。 */
 const matchesPortraitQuery = (width: number, height: number) => {
@@ -20,21 +20,21 @@ const matchesPortraitQuery = (width: number, height: number) => {
 };
 
 describe('libraryWallSeamDirection', () => {
-    it('lists auto / auto-reverse / vertical / horizontal, defaults to the reversed automatic, normalizes anything else to it', () => {
+    it('lists auto / auto-reverse / vertical / horizontal, defaults to auto and normalizes anything else to it', () => {
         expect(LIBRARY_WALL_SEAM_DIRECTIONS).toEqual(['auto', 'auto-reverse', 'vertical', 'horizontal']);
-        expect(DEFAULT_LIBRARY_WALL_SEAM_DIRECTION).toBe('auto-reverse');
+        expect(DEFAULT_LIBRARY_WALL_SEAM_DIRECTION).toBe('auto');
         expect(LIBRARY_WALL_SEAM_DIRECTIONS.every(isLibraryWallSeamDirection)).toBe(true);
         expect(normalizeLibraryWallSeamDirection('vertical')).toBe('vertical');
-        expect(normalizeLibraryWallSeamDirection('auto')).toBe('auto');
-        expect(normalizeLibraryWallSeamDirection('auto-reverse')).toBe('auto-reverse');
-        for (const value of [undefined, null, '', 'Horizontal', 'sideways', 1, true]) {
-            expect(normalizeLibraryWallSeamDirection(value)).toBe('auto-reverse');
+        for (const value of [undefined, null, '', 'Horizontal', 'sideways', 'autoReverse', 1, true]) {
+            expect(normalizeLibraryWallSeamDirection(value)).toBe('auto');
         }
     });
 
-    it('opens rows on portrait screens only when automatic, and follows a fixed choice otherwise', () => {
+    it('opens rows on portrait screens when automatic, on landscape ones when reversed, and follows a fixed choice otherwise', () => {
         expect(resolveLibraryWallSeamHorizontal('auto', true)).toBe(true);
         expect(resolveLibraryWallSeamHorizontal('auto', false)).toBe(false);
+        expect(resolveLibraryWallSeamHorizontal('auto-reverse', true)).toBe(false);
+        expect(resolveLibraryWallSeamHorizontal('auto-reverse', false)).toBe(true);
         expect(resolveLibraryWallSeamHorizontal('horizontal', false)).toBe(true);
         expect(resolveLibraryWallSeamHorizontal('vertical', true)).toBe(false);
     });
