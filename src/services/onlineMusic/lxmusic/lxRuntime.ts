@@ -8,6 +8,7 @@
 
 import type { LxLoadedSource, LxPlatformKey, LxRequestHandler, LxSourceMeta, LxSourcePlatformInfo } from './lxTypes';
 import { validateLxScript } from './lxSourceParser';
+import { resolveProxiedUrl } from '../../proxiedUrl';
 
 const EVENT_NAMES = { inited: 'inited', request: 'request', updateAlert: 'updateAlert' } as const;
 
@@ -178,7 +179,9 @@ export const lxRequest = (
     const controller = new AbortController();
     const timer = options.timeout ? window.setTimeout(() => controller.abort(), options.timeout) : null;
     const { body, headers } = buildRequestBody(options);
-    fetch(url, { method: options.method || 'GET', headers, body, signal: controller.signal, mode: 'cors' })
+    // 音源脚本里的请求同样要过原生桥：安卓 WebView 里直连各家接口会被 CORS 拦掉，
+    // 表现就是「每个音源都取不到地址」。
+    fetch(resolveProxiedUrl(url), { method: options.method || 'GET', headers, body, signal: controller.signal, mode: 'cors' })
         .then(async (resp) => {
             const text = await resp.text();
             const respHeaders: Record<string, string> = {};
@@ -263,38 +266,52 @@ export const loadLxSource = (rawScript: string, meta: LxSourceMeta): LxLoadedSou
             failed = '脚本没有注册 request 事件（无法取播放地址 / 歌词）。';
         } else {
             // LX 自定义源两种写法都支持：①回调式 on('request', (params, callback) => callback(null, result))
-            // （桌面端最常用，可能是同步也可能是异步回调）；②返回式 on('request', async (params) => result)。
-            // 下面把单个 handler 包成「先等返回值、再等回调」的 Promise，二者任一先给出结果即用。
+            // （桌面端最常用，内部通常要等一次 HTTP 回来才回调）；②返回式 on('request', async (params) => result)。
+            // 下面把单个 handler 包成 Promise：返回值与回调谁先给出结果就用谁，两条路都没有就等超时。
+            // 注意：回调式 handler 的返回值是 undefined，必须一直等回调——早先这里 0ms 就放弃，
+            // 于是「取播放地址」永远拿到空，界面上就是那句「洛雪未返回音频」。
+            const HANDLER_TIMEOUT_MS = 20000;
             const callHandler = (handler: (payload: unknown) => unknown, payload: unknown): Promise<unknown> => (
                 new Promise((resolve) => {
                     let settled = false;
+                    let timer: number | null = null;
                     const finish = (value: unknown) => {
-                        if (!settled && value !== undefined) {
-                            settled = true;
-                            resolve(value);
-                        }
+                        if (settled) return;
+                        settled = true;
+                        if (timer !== null) window.clearTimeout(timer);
+                        resolve(value);
                     };
+                    timer = window.setTimeout(() => finish(undefined), HANDLER_TIMEOUT_MS);
                     const callback = (err: unknown, resp?: unknown) => {
-                        if (err) return;
+                        if (err) {
+                            console.warn('[lx] request handler 回调报错：', err);
+                            finish(undefined);
+                            return;
+                        }
                         finish(resp);
                     };
                     let returned: unknown;
                     try {
-                        returned = handler(payload);
+                        // 有些脚本在 handler 内部才去读 globalThis.lx（懒取），调用期间把它放回去。
+                        (globalThis as { lx?: unknown }).lx = lx;
+                        // 第二个参数就是 LX 给脚本的回调：绝大多数音源写成
+                        // on('request', (params, callback) => { ... callback(null, { url }) })，少传它
+                        // 脚本里就是 "callback is not a function"，播放地址永远出不来。
+                        returned = (handler as (p: unknown, cb: unknown) => unknown)(payload, callback);
                     } catch (err) {
                         console.warn('[lx] request handler 抛错：', err);
-                        returned = undefined;
+                        finish(undefined);
+                        return;
                     }
                     if (returned !== undefined) {
                         if (returned && typeof (returned as { then?: unknown }).then === 'function') {
-                            (returned as Promise<unknown>).then((r) => finish(r)).catch(() => undefined);
+                            // async 包装的回调式 handler：Promise 可能先 resolve 成 undefined，别当结果。
+                            (returned as Promise<unknown>)
+                                .then((r) => { if (r !== undefined && r !== null) finish(r); })
+                                .catch(() => finish(undefined));
                         } else {
                             finish(returned);
                         }
-                    }
-                    // 既不返回也不回调时，稍后让出，避免立刻 resolve(undefined) 抢在异步回调之前。
-                    if (!settled) {
-                        window.setTimeout(() => { if (!settled) resolve(undefined); }, 0);
                     }
                 })
             );

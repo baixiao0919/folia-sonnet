@@ -92,13 +92,34 @@ const toNumber = (value: unknown): number => {
     return Number.isFinite(num) ? num : 0;
 };
 
-/** 酷狗封面地址带 `{size}` 模板；酷我返回的是 `http://` 或协议相对地址。 */
+/**
+ * 封面地址统一成能直接给 <img> 的 https 绝对地址：
+ * 酷狗带 `{size}` 模板、协议相对地址 `//`、还有 `http://`（App 里是 https 页面，混内容会被拦）。
+ */
 const normalizeCover = (value: unknown, size = 240): string | undefined => {
     const raw = toText(value);
     if (!raw) return undefined;
     const sized = raw.replace('{size}', String(size));
     if (sized.startsWith('//')) return `https:${sized}`;
+    if (/^http:\/\//i.test(sized)) return `https://${sized.slice('http://'.length)}`;
     return sized;
+};
+
+// 酷我封面 CDN 的路径前缀；短路径 `120/85/1/4091887608.jpg` 拼在 albumcover 下面。
+const KUWO_COVER_BASE = 'https://img1.kuwo.cn/star/albumcover/';
+const KUWO_COVER_SHORT_PATH = /^\d+\/[\w.-]+\/[\w.-]+\/[\w.-]+\.(?:jpe?g|png|webp)$/i;
+
+/**
+ * 酷我的搜索接口经常只给 `120/85/1/4091887608.jpg` 这种相对短路径，直接塞进 <img> 会当成
+ * 页面内的相对文件去取（一定 404），还曾在启动自检里被当成「资源加载失败」整屏挡住。
+ */
+const normalizeKuwoCover = (value: unknown, size = 240): string | undefined => {
+    const raw = toText(value);
+    if (!raw) return undefined;
+    const path = raw.replace(/^\/+/, '');
+    if (/^star\//i.test(path) && !/^https?:/i.test(raw)) return `https://img1.kuwo.cn/${path}`;
+    if (KUWO_COVER_SHORT_PATH.test(path)) return `${KUWO_COVER_BASE}${path}`;
+    return normalizeCover(raw, size);
 };
 
 const splitArtists = (value: unknown): LxApiArtist[] => toText(value)
@@ -125,7 +146,11 @@ const parseLooseJson = (text: string): unknown => {
 
 const REQUEST_TIMEOUT_MS = 12000;
 
-const fetchJson = async (url: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<unknown> => {
+const fetchJson = async (
+    url: string,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+    referer = 'https://music.163.com/',
+): Promise<unknown> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -134,7 +159,7 @@ const fetchJson = async (url: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<u
             signal: controller.signal,
             credentials: 'omit',
             // 网易云对没有 referer 的请求偶尔回 403；安卓桥会原样带过去，网页端由浏览器忽略。
-            headers: { Referer: 'https://music.163.com/' },
+            headers: { Referer: referer },
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return parseLooseJson(await response.text());
@@ -307,7 +332,7 @@ const KUWO_CHARTS: ReadonlyArray<{ id: string; name: string }> = [
 const kuwoIdOf = (value: unknown): string => toText(value).replace(/^MUSIC_/i, '');
 
 const kuwoSong = (raw: Raw): LxApiSong => {
-    const cover = normalizeCover(pick(raw, 'web_albumpic_short', 'web_album_short', 'albumpic', 'pic'));
+    const cover = normalizeKuwoCover(pick(raw, 'web_albumpic_short', 'web_album_short', 'albumpic', 'pic'));
     // 榜单里的 `duration` 不是时长（有时是 2），`song_duration` 才是秒数；搜索结果是 `DURATION`。
     const seconds = Math.max(toNumber(pick(raw, 'DURATION', 'duration')), toNumber(pick(raw, 'song_duration')));
     return {
@@ -489,8 +514,27 @@ export const lxApiAlbumTracks = async (
     return { items: songs.slice(offset, offset + limit), hasMore: songs.length > offset + limit };
 };
 
-/** 酷我有免费直链（其余两家要靠音源续）。返回 null 表示这次没取到，交给音源。 */
+/**
+ * 酷狗 `m.kugou.com` 的播放信息接口：免费曲目直接给一条 CDN 直链，付费 / 独家曲目的 url 是空串。
+ * 先把能放的那批放出来，剩下的再交给导入的 LX 音源。
+ */
+const kugouFreeAudioUrl = async (hash: string): Promise<string | null> => {
+    try {
+        const payload = asRecord(await fetchJson(
+            `https://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash=${encodeURIComponent(hash)}`,
+            9000,
+            'https://m.kugou.com/',
+        ));
+        const url = toText(payload?.url);
+        return /^https?:\/\//i.test(url) ? url : null;
+    } catch {
+        return null;
+    }
+};
+
+/** 酷我 / 酷狗有免费直链（其余靠音源续）。返回 null 表示这次没取到，交给音源。 */
 export const lxApiFreeAudioUrl = async (platform: LxPublicPlatform, songId: string): Promise<string | null> => {
+    if (platform === 'kg') return kugouFreeAudioUrl(songId);
     if (platform !== 'kw') return null;
     try {
         const url = await fetchText(

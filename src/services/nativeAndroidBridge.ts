@@ -35,6 +35,12 @@ const API_HOSTS = [
   // 经由桥发出的请求必须在这里代理，漏掉一个主机的后果是静默返回空结果而不是报错。
   'kugou.com',
   'kuwo.cn',
+  // 洛雪音源脚本会去各家自己的主机取播放地址（QQ 音乐的 u6/isure、咪咕、网易云图床），
+  // 这些请求同样只能靠原生代理绕开 CORS，漏一个就是「音源取不到地址」。
+  'y.qq.com',
+  'qqmusic.qq.com',
+  'migu.cn',
+  '126.net',
   'api.qrserver.com',
   // 封面：这几个 CDN 不下发 CORS 头，coverCache 用 fetch 取字节存缓存时在浏览器里必然失败。
   // 走原生桥取回字节就没有同源问题了。

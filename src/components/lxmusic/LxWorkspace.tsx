@@ -13,7 +13,7 @@ import {
 } from '../../services/onlineMusic/lxmusic/lxPublicApi';
 import { LxTrackList } from './LxTrackList';
 import { LxSourcePanel } from './LxSourcePanel';
-import { errorText, formatCount, formatDate, platformBadge } from './lxUi';
+import { errorText, formatCount, formatDate, platformBadge, platformOfSong } from './lxUi';
 import './lxWorkspace.css';
 
 // src/components/lxmusic/LxWorkspace.tsx
@@ -75,12 +75,22 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
     // 播放回执：播放器在浮层底下，点完不给一句反馈会以为没反应。
     const [playHint, setPlayHint] = useState<string | null>(null);
     const playHintTimer = useRef<number | null>(null);
-    const handlePlay = useCallback((song: UnifiedSong) => {
-        onPlayTrack(song);
-        setPlayHint(`正在播放 · ${song.name}`);
+    const showHint = useCallback((text: string, durationMs = 2600) => {
+        setPlayHint(text);
         if (playHintTimer.current) window.clearTimeout(playHintTimer.current);
-        playHintTimer.current = window.setTimeout(() => setPlayHint(null), 2600);
-    }, [onPlayTrack]);
+        playHintTimer.current = window.setTimeout(() => setPlayHint(null), durationMs);
+    }, []);
+    const handlePlay = useCallback((song: UnifiedSong) => {
+        // 网易云没有免费直链，没导入网易云音源时点播放只会换来一句「洛雪未返回音频」，
+        // 不如当场说清楚缺什么。
+        const owner = platformOfSong(song);
+        if (owner === 'wy' && !lxSourceStore.canResolve('wy', 'musicUrl')) {
+            showHint('网易云的歌要先去「音源」导入网易云音源', 3600);
+            return;
+        }
+        onPlayTrack(song);
+        showHint(`正在播放 · ${song.name}`);
+    }, [onPlayTrack, showHint]);
     useEffect(() => () => {
         if (playHintTimer.current) window.clearTimeout(playHintTimer.current);
     }, []);
@@ -260,8 +270,11 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
 
     // ------------------------------------------------------------ 渲染片段
 
+    // 酷我 / 酷狗有公开的免费直链（付费 / 独家曲目才需要音源），网易云只能靠导入的音源。
+    const hasFreeDirect = (target: string): boolean => target === 'kw' || target === 'kg';
+
     const canPlayOn = (target: string): boolean => (
-        target === 'kw' || lxSourceStore.canResolve(target as LxPlatformKey, 'musicUrl')
+        hasFreeDirect(target) || lxSourceStore.canResolve(target as LxPlatformKey, 'musicUrl')
     );
 
     const platformChips = (
@@ -284,6 +297,10 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
     const sourceWarning = !canPlayOn(platform) ? (
         <div className="lx-notice" data-kind="warn">
             还没有能处理{platformBadge(platform).label}的音源：这一家的歌能搜、能看，但播放要等你在「音源」里导入对应平台的音源。
+        </div>
+    ) : platform === 'kg' && !lxSourceStore.canResolve('kg', 'musicUrl') ? (
+        <div className="lx-notice" data-kind="warn">
+            酷狗的免费曲目可以直接放；付费 / 独家曲目要等你在「音源」里导入酷狗音源。
         </div>
     ) : null;
 

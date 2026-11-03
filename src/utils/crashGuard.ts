@@ -157,6 +157,12 @@ export const installCrashGuard = (): void => {
         // 资源加载失败（img/script）不冒泡到 window.onerror 的 message，单独记一条。
         if (!event.message && target && target !== (window as unknown as EventTarget)) {
             const source = target.getAttribute?.('src') ?? target.getAttribute?.('href') ?? '';
+            // 封面挂掉是常事（各家 CDN 撤图、限流、地址带时效签名），一张图 404 不该整屏挡住
+            // 能用的界面——只留在控制台，让人还能接着听歌。脚本 / 样式加载失败才值得亮出来。
+            if (target.tagName === 'IMG') {
+                console.warn(`[folia] 图片加载失败：${source}`);
+                return;
+            }
             record('资源加载失败', `${target.tagName} ${source}`);
             return;
         }
