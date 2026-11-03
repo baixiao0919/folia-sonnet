@@ -19,6 +19,7 @@ import PasswordLoginForm from './PasswordLoginForm';
 import { accountView, failureNoteKey, failureQuote, loginScene, methodsPendingKey, sceneHeadline, stepMarks, type RowLead } from './loginView';
 import LoginWindow from './LoginWindow';
 import PlatformColumn from './PlatformColumn';
+import LxSourceManagerDialog from '../../lxmusic/LxSourceManagerDialog';
 
 // src/components/login/window/LoginScreen.tsx
 // 登录窗口此刻画什么：从「选中了哪一行、登录走到哪一步、失败是哪一种情况」定出那一块画、标题、
@@ -192,6 +193,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     const [detailsOpen, setDetailsOpen] = useState(false);
     useEffect(() => setDetailsOpen(false), [sceneKey]);
 
+    // 洛雪音源不需要登录：点它的那一行时直接弹出音源管理 / 导入框，不触发账户流程。
+    const [lxmusicOpen, setLxmusicOpen] = useState(false);
+    const handleChoose = (providerId: OnlineProviderId) => {
+        if (providerId === 'lxmusic') {
+            setLxmusicOpen(true);
+            return;
+        }
+        onChoose(providerId);
+    };
+
     return (
         <>
         <LoginWindow
@@ -219,7 +230,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                     left={narrow ? 24 : 292}
                 />
             )}
-            column={lie => <PlatformColumn rows={rows} chosenId={providerId} onChoose={row => onChoose(row.providerId)} onAllProvidersChosen={onAllProvidersChosen} lie={lie} />}
+            column={lie => <PlatformColumn rows={rows} chosenId={providerId} onChoose={row => handleChoose(row.providerId)} onAllProvidersChosen={onAllProvidersChosen} lie={lie} />}
             tile={(
                 <LoginTile
                     tileRef={element => { doneParts.current.tile = element; }}
@@ -273,6 +284,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             below={details ? <Unfold open={detailsOpen}>{details}</Unfold> : undefined}
         />
         {shownDone && providerId && <LoginDoneFlight parts={doneParts} providerId={providerId} label={label} user={summary?.user ?? null} />}
+        <LxSourceManagerDialog open={lxmusicOpen} onClose={() => setLxmusicOpen(false)} />
         </>
     );
 };
