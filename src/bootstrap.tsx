@@ -4,6 +4,7 @@ import './i18n/config';
 import './index.css';
 import App from './App';
 import AppSplashGate from './components/AppSplashGate';
+import AppErrorBoundary from './components/AppErrorBoundary';
 import RemoteControlApp from './components/remote/RemoteControlApp';
 import ObsBrowserSourceApp from './components/obs/ObsBrowserSourceApp';
 import ObsNowPlayingSourceApp from './components/obs/ObsNowPlayingSourceApp';
@@ -72,6 +73,7 @@ const FirstScreenMounted: React.FC<{ children: React.ReactNode }> = ({ children 
 
 const renderApp = () => root.render(
     <React.StrictMode>
+      <AppErrorBoundary>
       <AppSplashGate>
         {isNowPlayingObsSource
           ? <ObsNowPlayingSourceApp />
@@ -83,6 +85,7 @@ const renderApp = () => root.render(
                 ? <RemoteControlApp />
                 : <FirstScreenMounted><App /></FirstScreenMounted>}
       </AppSplashGate>
+      </AppErrorBoundary>
     </React.StrictMode>
   );
 

@@ -52,6 +52,27 @@ body {
   overflow: hidden;
 }
 
+/* 根高度链。AppShell 的根元素是 `fixed inset-0 w-full h-full`，h-full 的百分比必须能解析到
+   视口高度，否则 #root 高度为 0、整屏内容全画进一个 0 高的盒子 —— 首屏遮罩一淡出就是纯黑。
+   桌面 Electron 的窗口自带高度，所以只给 html/body 背景色也不会出问题；WebView 里必须显式给。 */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* Capacitor 安卓上内容直接铺满视口：原生侧已 setDecorFitsSystemWindows(false)，但 viewport-fit=cover
+   时 WebView 仍会报 safe-area-inset，靠 h-full 会硬生生留出上下两条空白带。
+   改用 fixed 的上下定位铺满，刘海/挖孔交给原生处理。 */
+html[data-runtime='capacitor-android'] .fixed.inset-0 {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: auto;
+  height: auto;
+}
+
 body:lang(vi) {
   font-family: 'Inter', "Segoe UI", system-ui, var(--font-cjk-sans), sans-serif;
 }

@@ -1,3 +1,6 @@
+// 必须第一个 import：这个模块在顶层补齐旧 WebView 缺的 API（structuredClone / Object.hasOwn /
+// Array.at / replaceAll），后面任何模块都可能用到它们。
+import { installCrashGuard } from './utils/crashGuard';
 import { Buffer } from 'buffer';
 import { ensureBackgroundRenderGateInstalled } from './utils/backgroundRenderGate';
 import { installGlobalVisualizerFrameRateLimiter } from './utils/frameRateLimiter';
@@ -14,6 +17,9 @@ import { installHdrProjectionPreference } from './services/hdrProjection';
 // import { installCoverSizeAudit } from './services/debug/coverSizeSamples';
 // @ts-ignore
 globalThis.Buffer = Buffer;
+// 崩溃兜底要在任何东西之前装：真机上 React 挂载后如果某个 effect 抛错，
+// 整棵树会被卸载、只剩黑屏，至少让错误留在屏幕上。
+installCrashGuard();
 // First, so the debug overlay's console tab has the startup lines too - they are where a failure
 // to reach a library or restore a session shows up.
 installConsoleLogCapture();
