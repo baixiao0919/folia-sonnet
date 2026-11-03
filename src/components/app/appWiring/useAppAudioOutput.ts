@@ -8,6 +8,7 @@ import { clampMediaVolume } from '../../../utils/appPlaybackHelpers';
 import { createCoverUrlResolver } from '../../../utils/coverUrlResolver';
 import { writeLyricOffset } from '../../../utils/lyrics/lyricOffsetMemory';
 import { createLyricsSetter } from '../playback/createLyricsSetter';
+import { useLyricSettingsStore } from '../../../stores/useLyricSettingsStore';
 import { persistPlaybackCache } from '../playback/persistPlaybackCache';
 import { createOnlineRecoveryController } from '../playback/restore/createOnlineRecoveryController';
 import { useRef, useEffect, useCallback, useMemo } from 'react';
@@ -29,14 +30,16 @@ export const useAppAudioOutput = (model: Input) => {
         onlinePlaybackRecoveryRef, pendingResumeTimeRef, pendingVolumePreviewRef, setAudioSrc, setCurrentSong,
         setLyricTimelineOffsetMs, setLyricsState, setPlayQueue, shouldAutoPlay, volume, volumePreviewFrameRef
     } = model;
+    // 歌词行规则由 store 持有（PR 起过滤从单条 pattern 换成规则数组），setter 每次按最新规则重编。
+    const lyricLineRules = useLyricSettingsStore(state => state.lyricLineRules);
     const setLyrics = useMemo(
-        () => createLyricsSetter(setLyricsState, lyricFilterEnabled ? lyricFilterPattern : '', currentSongFullRef, {
+        () => createLyricsSetter(setLyricsState, lyricLineRules, currentSongFullRef, {
             policy: lyricStaffPolicy,
             minDwellSeconds: lyricStaffMinDwellSeconds,
             absorbMode: lyricStaffAbsorbMode,
             pattern: lyricStaffPattern,
         }),
-        [lyricFilterEnabled, lyricFilterPattern, lyricStaffPolicy, lyricStaffMinDwellSeconds, lyricStaffAbsorbMode, lyricStaffPattern],
+        [lyricLineRules, lyricStaffPolicy, lyricStaffMinDwellSeconds, lyricStaffAbsorbMode, lyricStaffPattern],
     );
     // 保存过滤设置后要用新设置重新铺一遍当前歌词，而此时闭包里的 setLyrics 还是旧的。
     const setLyricsRef = useRef(setLyrics);

@@ -452,6 +452,9 @@ const withActiveProvider = async <T>(run: (provider: OnlineMusicProvider) => Pro
     return result;
 };
 
+// 安卓电容桥（useCapacitorPlaybackBridge）从 omni 入口取这个改写器，实现在 omni/accountLikes。
+export { applyNativeLikeOverrides } from './omni/accountLikes';
+
 export const omni = {
     invalidateActiveRequests(): void {
         activeRequestGeneration += 1;

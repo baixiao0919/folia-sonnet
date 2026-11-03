@@ -61,6 +61,8 @@ export const askedSongKeyRef: AskedSongKeyRef = {
 
 let playsStarted = 0;
 let playsDropped = 0;
+/** How many plays have been started so far — the Android bridge uses it to tell a stale request apart. */
+export const playRequestsSoFar = (): number => playsStarted;
 /**
  * The plays started since the last drop that have not been abandoned, oldest first (for
  * `onceShown`). Only the newest PLAYS_KEPT are kept: a play older than those is answered no for good
