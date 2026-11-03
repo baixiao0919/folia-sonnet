@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -21,10 +21,6 @@ import './search.css';
 // src/components/app/search/SearchWorkspace.tsx
 // 搜索页：搜索框、来源（当前在线平台 / 本地 / Navidrome）、种类（单曲 / 专辑 / 歌单，在线平台搜得到几种就有几种），
 // 结果是一张列表；底下压着一幅随种类换站位的至上主义构图（SearchComposition）。
-
-// 平台注册表会在运行时增删（Folium mod 源），源列表要跟着它变，所以订阅版本号而不是只在挂载时读一次。
-const subscribeProviderRegistry = (listener: () => void) => omni.subscribeProviders(listener);
-const readProviderRegistryVersion = () => omni.getProviderRegistryVersion();
 
 type SearchWorkspaceProps = {
     theme: Theme;
@@ -78,7 +74,6 @@ const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
         isSearching,
         isLoadingMore,
         searchError,
-        searchAuthExpiredProvider,
         hasMore,
         scrollTop,
         setSearchQuery,
@@ -95,7 +90,6 @@ const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
         isSearching: state.isSearching,
         isLoadingMore: state.isLoadingMore,
         searchError: state.searchError,
-        searchAuthExpiredProvider: state.searchAuthExpiredProvider,
         hasMore: state.hasMore,
         scrollTop: state.scrollTop,
         setSearchQuery: state.setSearchQuery,
@@ -129,40 +123,6 @@ const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [hasCollection, isSearchOpen, onClose]);
-
-    /**
-     * 带着词进来但还没有结果时，自己补一次提交。
-     *
-     * 墙上的搜索框（bravais）走的是 onSearchCommitted → navigateToSearch，只写历史、不发请求，
-     * 于是进了搜索页「未找到相关结果」，必须再点一次搜索才真的搜。老套件 Grid3D 是先
-     * submitSearch 再 onSearchCommitted，bravais 漏了这一步；把补提交放在这里而不是回墙上，
-     * 是因为浏览器后退、刷新进 #search/... 这些入口同样需要它。
-     *
-     * 按「源 + 词」记一次，避免换源 / 改词时反复提交；关掉搜索页就清掉。
-     */
-    const autoSubmittedRef = useRef<string | null>(null);
-    useEffect(() => {
-        if (!isSearchOpen) {
-            autoSubmittedRef.current = null;
-        }
-    }, [isSearchOpen]);
-
-    useEffect(() => {
-        if (!isSearchOpen || hasCollection) return;
-        const trimmedQuery = searchQuery.trim();
-        // 出错与「确实没有结果」都把 searchResults 落成了 []，不是 null，所以不会在这里空转。
-        if (!trimmedQuery || isSearching || searchResults !== null) return;
-        const key = `${searchSourceTab}:${trimmedQuery.toLowerCase()}`;
-        if (autoSubmittedRef.current === key) return;
-        autoSubmittedRef.current = key;
-        void onSubmitSearch(searchSourceTab);
-    }, [hasCollection, isSearchOpen, isSearching, onSubmitSearch, searchQuery, searchResults, searchSourceTab]);
-
-    // 上面那次补提交到达之前，results 还是 null：那一帧不该画「未找到相关结果」。
-    const awaitingFirstResult = !hasCollection
-        && searchResults === null
-        && !searchError
-        && Boolean(searchQuery.trim());
 
     return (
         <AnimatePresence>
@@ -202,13 +162,14 @@ const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
                                     autoFocus
                                 />
                             </form>
-                            <Button
+                            <button
+                                type="button"
                                 onClick={onClose}
                                 className="search-close"
                                 aria-label={t('ui.backToHome')}
                             >
                                 <X size={20} />
-                            </Button>
+                            </button>
                         </div>
 
                         <SearchTabs
@@ -247,7 +208,7 @@ const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
                                     className="search-flat-button"
                                 >
                                     {t('search.retry')}
-                                </Button>
+                                </button>
                             </div>
                         ) : resultCount === 0 ? (
                             <div className="flex h-full flex-col items-center justify-center gap-6 text-center">
@@ -270,16 +231,6 @@ const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
                                         onOpenCollection={onOpenCollection}
                                     />
                                 </div>
-                                {/*
-                                    还有平台没回来：列表已经在长了，所以只补一行小字，
-                                    不再盖一层转圈把刚出来的结果挡住。
-                                */}
-                                {isSearching && (
-                                    <div className="flex shrink-0 items-center justify-center gap-2 py-2.5 text-xs opacity-55">
-                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                        <span>{t('search.streamingMore')}</span>
-                                    </div>
-                                )}
                                 {searchError ? (
                                     <div className="flex shrink-0 items-center justify-center gap-4 py-3 text-sm">
                                         <span className="opacity-60">{t('search.error')}</span>
@@ -290,17 +241,18 @@ const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
                                             className="search-flat-button"
                                         >
                                             {t('search.retry')}
-                                        </Button>
+                                        </button>
                                     </div>
                                 ) : hasMore && (
                                     <div className="flex shrink-0 justify-center py-3">
-                                        <Button
+                                        <button
+                                            type="button"
                                             disabled={isLoadingMore}
                                             onClick={onLoadMore}
                                             className="search-flat-button"
                                         >
                                             {isLoadingMore ? t('localMusic.searching') : t('home.loadMore')}
-                                        </Button>
+                                        </button>
                                     </div>
                                 )}
                             </div>

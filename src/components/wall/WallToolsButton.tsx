@@ -184,7 +184,8 @@ export function WallToolsSurface({ idPrefix, label, isDaylight, destination, ent
                             {rows.map(entry => <WallToolsRow key={entry.id} entry={entry} onDone={close} />)}
                             <WallToolsRow entry={tintRow} onDone={close} />
                             <div className="lattice-tools-help-section" role="none">
-                                <Button
+                                <button
+                                    type="button"
                                     role="menuitemcheckbox"
                                     aria-checked={lightsOn}
                                     aria-label={t('home.latticeLights')}
@@ -193,18 +194,19 @@ export function WallToolsSurface({ idPrefix, label, isDaylight, destination, ent
                                 >
                                     <span className={lightsOn ? 'is-active' : ''}>{t('home.latticeLightsOn')}</span>
                                     <span className={lightsOn ? '' : 'is-active'}>{t('home.latticeLightsOff')}</span>
-                                </Button>
-                                <Button
+                                </button>
+                                <button
+                                    type="button"
                                     role="menuitem"
                                     className="lattice-tools-action lattice-tools-help-trigger"
                                     aria-label={t('home.latticeHelp')}
-                                    tip={t('home.latticeHelp')}
+                                    title={t('home.latticeHelp')}
                                     aria-expanded={showHelp}
                                     aria-controls={helpId}
                                     onClick={() => setShowHelp(visible => !visible)}
                                 >
                                     <CircleHelp aria-hidden="true" />
-                                </Button>
+                                </button>
                                 <AnimatePresence initial={false}>
                                     {showHelp && (
                                         <motion.div

@@ -72,10 +72,6 @@ const JELLY_REARM_MAX_WAIT_MS = 1200;
 const HOVER_EXPAND_DELAY_MS = 20;
 const HOVER_COLLAPSE_DELAY_MS = 100;
 const HOVER_HITBOX_BOTTOM_BUFFER_PX = 32;
-/** 暂停时自动展开露出的时间：够看见并点到控件，之后自己缩回一条进度条。 */
-const AUTO_EXPAND_DURATION_MS = 4000;
-/** 按下与松手之间超过这个距离就算拖动，不再当成点击（进度条 seek 完不该触发胶囊的动作）。 */
-const CLICK_SLOP_PX = 8;
 /*
  * 模组可以通过公开变量 --folium-player-bar-extra 加宽胶囊，补回进度条两侧按钮占掉的长度。
  * 外层 max-width 已经加了一份 extra；收起的胶囊是外层的 80% / 60%，所以只再补 (1 - 比例) 份，

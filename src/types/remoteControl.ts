@@ -98,7 +98,7 @@ export interface RemoteControlSnapshot {
     currentTime: number;
     duration: number;
     playerState: PlayerState;
-    loopMode: 'off' | 'all' | 'one' | 'shuffle';
+    loopMode: 'off' | 'all' | 'one';
     canGoPrevious: boolean;
     canGoNext: boolean;
     prevTrackKey: string | null;

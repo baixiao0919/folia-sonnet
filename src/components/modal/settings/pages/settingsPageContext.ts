@@ -23,8 +23,6 @@ export type AiApiKeyName = 'GEMINI_API_KEY' | 'OPENAI_API_KEY';
 export type ElectronSettingsState = {
     /** Drafts of a replacement key: a saved key never reaches the renderer. */
     GEMINI_API_KEY: string;
-    /** 自建 / 反代的 Gemini 接口地址（fork：默认 https://generativelanguage.googleapis.co）。 */
-    GEMINI_API_URL: string;
     GEMINI_API_MODEL: string;
     AI_PROVIDER_PRESET: string;
     OPENAI_API_KEY: string;

@@ -1,6 +1,5 @@
 import React from 'react';
 import { Tooltip } from '../../modal/settings/kit/Tooltip';
-import { Button } from '../../ui';
 
 // src/components/panelTab/shell/PanelIconButton.tsx
 // A button of the panel that is only an icon. Its name is its tooltip (the kit's own, not the
@@ -28,7 +27,7 @@ type PanelIconButtonProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 
     children: React.ReactNode;
 };
 
-export const PanelIconButton = React.forwardRef<HTMLButtonElement, PanelIconButtonProps>(({
+export const PanelIconButton: React.FC<PanelIconButtonProps> = ({
     label,
     size = 'm',
     filled,
@@ -38,13 +37,12 @@ export const PanelIconButton = React.forwardRef<HTMLButtonElement, PanelIconButt
     onClick,
     children,
     ...button
-}, ref) => (
+}) => (
     <Tooltip text={label} className={`inline-flex shrink-0${className ? ` ${className}` : ''}`}>
         <button
             type="button"
             data-glass
             {...button}
-            ref={ref}
             aria-label={label}
             aria-pressed={pressed}
             aria-disabled={disabled || undefined}
@@ -54,10 +52,8 @@ export const PanelIconButton = React.forwardRef<HTMLButtonElement, PanelIconButt
                 : `hover:text-[color:var(--st-t1)] active:scale-[0.96] ${filled ? 'hover:bg-[var(--st-fill2)]' : 'hover:bg-[var(--st-fill)]'}`}`}
         >
             {children}
-        </Button>
+        </button>
     </Tooltip>
-));
-
-PanelIconButton.displayName = 'PanelIconButton';
+);
 
 export default PanelIconButton;

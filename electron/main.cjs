@@ -68,10 +68,7 @@ const {
 const { createKugouApiBridge } = require('./kugou/kugouApiBridge.cjs');
 const { createExternalUrlOpener } = require('./externalUrlPolicy.cjs');
 const { createSenderGuardedHandler } = require('./ipcAccessGuard.cjs');
-// 汽水的桌面桥本 fork 自己带一份（位于 electron/ 根下，走 userDataDir + 自建音频服务），
-// 与上游 electron/qishui/qishuiApiBridge.cjs（走 npm qishui-music-api、靠 mediaCors 登记音频）
-// 是两套 operation 词汇，渲染层只认下面这一个，所以只能接这一份。
-const { createQishuiApiBridge } = require('./qishuiApiBridge.cjs');
+const { createQishuiApiBridge } = require('./qishui/qishuiApiBridge.cjs');
 const { createQishuiMediaPolicy } = require('./qishui/mediaCors.cjs');
 const { createBodianApiBridge } = require('./bodian/bodianApiBridge.cjs');
 const { createBodianMediaPolicy } = require('./bodian/mediaCors.cjs');
@@ -118,9 +115,6 @@ const { createApprovedMpvPathStore, isReservedHifiSettingKey } = require('./hifi
 const { registerMprisIpc } = require('./hifi/mpris/mprisIpc.cjs');
 const { sanitizeDualTheme: sanitizeGeneratedDualTheme } = require('../shared/themeSanitizer.cjs');
 const {
-  detectOpenAICompatibleProvider,
-  normalizeOpenAIChatCompletionsUrl,
-  resolveGeminiGenerateContentUrl,
   aiProviderLabel,
   runAiConnectionTest,
   runAiJsonCompletion,
@@ -362,6 +356,9 @@ process.on('exit', () => hifiSession.killSync());
 // The bridge refuses Linux's plaintext `basic_text` fallback and degrades to an in-memory session.
 const kugouApiBridge = createKugouApiBridge({ store, safeStorage });
 const qishuiMediaPolicy = createQishuiMediaPolicy();
+const qishuiApiBridge = createQishuiApiBridge({ store, safeStorage, fetch: (url, options) => electronNet.fetch(url, options),
+  onAudioSource: url => qishuiMediaPolicy.register(url),
+});
 const bodianMediaPolicy = createBodianMediaPolicy();
 const bodianApiBridge = createBodianApiBridge({ store, safeStorage,
   onAudioSource: url => bodianMediaPolicy.register(url),
@@ -371,7 +368,6 @@ const bodianApiBridge = createBodianApiBridge({ store, safeStorage,
     return request;
   },
 });
-let qishuiApiBridge = null;
 // YouTube Music talks to Google from its own network partition and without a cookie jar: the
 // account is carried by a request header, and stored cookies would tie the guest sessions to it.
 // (The library sends one cookie of its own making, a random visitor id and the time zone, on the
@@ -2612,10 +2608,10 @@ const MOD_SYSTEM_ENABLED_SETTING_KEY = 'MOD_SYSTEM_ENABLED';
 const DEFAULT_STAGE_API_PORT = 32107;
 const DEFAULT_OBS_BROWSER_SOURCE_PORT = 32108;
 const DEFAULT_LYRIC_API_PORT = 32109;
-const FOLIA_RELEASES_URL = 'https://github.com/maimai993/folia-sonnet/releases';
+const FOLIA_RELEASES_URL = 'https://github.com/chthollyphile/folia-major/releases';
 const FOLIA_GITHUB_REPOSITORY = {
-  owner: 'maimai993',
-  repo: 'folia-sonnet',
+  owner: 'chthollyphile',
+  repo: 'folia-major',
 };
 const WINDOWS_APP_USER_MODEL_ID = 'top.izuna.foliamajor';
 const REMOTE_CONTROL_WINDOW_TITLE = 'Folia Remote';
@@ -5923,15 +5919,6 @@ function createWindow(options = {}) {
       void hifiSession.stop();
       mainWindowClickThroughUnlockHover = false;
       stopMainWindowClickThroughUnlockHoverMonitor();
-      // 汽水音乐桥的隐藏签名窗口是一个真实 BrowserWindow，只要还开着，Electron 就不会触发
-      // 'window-all-closed'，主窗口关掉后 app 退不出去。主窗口真正关闭时先回收桥。
-      if (qishuiApiBridge) {
-        try {
-          qishuiApiBridge.dispose();
-        } catch (error) {
-          console.warn('[Qishui] dispose on main window close failed:', error && error.message);
-        }
-      }
       if (remoteControlWindow && !remoteControlWindow.isDestroyed()) {
         remoteControlWindow.close();
       }
@@ -6076,12 +6063,6 @@ app.whenReady().then(async () => {
   // download the first one is still writing into the shared userData folder.
   hifiInstaller.pruneLeftovers()
     .catch(error => console.warn('[HiFi] could not remove leftover mpv downloads', error));
-
-  // 汽水音乐：构造本身很轻（协议层与签名运行时都是惰性 require），第一次真正用到才加载。
-  qishuiApiBridge = createQishuiApiBridge({
-    userDataDir: app.getPath('userData'),
-    warn: console.warn,
-  });
 
   if (process.platform === 'win32') {
     app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID);
@@ -6405,13 +6386,6 @@ app.on('before-quit', (event) => {
   videoExportFileWriter.disposeSync();
   isAppQuitting = true;
   clearPendingWindowPlaybackHandoffRequests();
-  if (qishuiApiBridge) {
-    try {
-      qishuiApiBridge.dispose();
-    } catch (error) {
-      console.error('[Qishui] Failed to dispose the API bridge', error);
-    }
-  }
   // A question about a window that stopped answering is taken down: the app is leaving.
   mainWindow?.__unresponsivePrompt?.abort();
   if (modSystem) {
@@ -7092,6 +7066,10 @@ ipcMain.handle('kugou-api-request', createSenderGuardedHandler({
   isTrusted: isFirstPartyWindowContents,
   handler: (_event, operation, params) => kugouApiBridge.request(operation, params),
 }));
+ipcMain.handle('qishui-api-request', (event, operation, params) => {
+  if (!isTrustedMainWindowContents(event.sender)) return { ok: false, error: { code: 'unavailable', message: 'Untrusted Qishui request' } };
+  return qishuiApiBridge.request(operation, params);
+});
 ipcMain.handle('bodian-api-request', (event, operation, params) => {
   if (!isTrustedMainWindowContents(event.sender)) {
     return { ok: false, error: { code: 'unavailable', message: 'Untrusted Bodian request' } };
@@ -7109,17 +7087,6 @@ ipcMain.handle('spotify-api-request', (event, operation, params) => {
     return { ok: false, error: { code: 'unavailable', message: 'Untrusted Spotify request' } };
   }
   return spotifyApiBridge.request(operation, params);
-});
-
-// 汽水音乐：与 bodian 一样限制为受信主窗口发送方；桥未构造完成时明确回 unavailable 而不是抛错。
-ipcMain.handle('qishui-api-request', (event, operation, params) => {
-  if (!isTrustedMainWindowContents(event.sender)) {
-    return { ok: false, error: { code: 'unavailable', message: 'Untrusted Qishui request' } };
-  }
-  if (!qishuiApiBridge) {
-    return { ok: false, error: { code: 'unavailable', message: 'Qishui bridge is not ready' } };
-  }
-  return qishuiApiBridge.request(operation, params);
 });
 
 ipcMain.handle('window-minimize', () => {

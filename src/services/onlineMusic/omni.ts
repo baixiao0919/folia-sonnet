@@ -78,18 +78,26 @@ import type { AccountReadOutcome, AccountReadReason } from './account/accountRea
 
 // src/services/onlineMusic/omni.ts
 // Online Music Network Interface (Omni) - a unified interface for interacting with multiple online music providers.
-// The implementation lives in ./omni/, one module per capability group; this file only assembles the
-// object every caller imports.
 
-const omni = {
-    ...providerMethods,
-    ...libraryMethods,
-    ...playbackMethods,
-    ...lyricsMethods,
-    ...catalogMethods,
-    ...accountMethods,
-    ...mutationMethods,
-    ...rawMethods,
+
+type PageInput = { limit: number; offset: number };
+
+// The quality levels, lowest first.
+const AUDIO_QUALITY_LEVELS: readonly AudioQualityPreference[] = ['standard', 'high', 'ultra', 'lossless', 'hires'];
+// A provider that lists none of its own tells these four apart. 'ultra' is not among them: it
+// is a level only for a provider that lists it, so no other provider is ever asked at it.
+const UNLISTED_AUDIO_QUALITY_LEVELS: readonly AudioQualityPreference[] = ['standard', 'high', 'lossless', 'hires'];
+const audioQualityLevelsOf = (providerId: OmniProviderId): readonly AudioQualityPreference[] => {
+    const listed = getOnlineMusicProvider(providerId)?.playback?.audioQualityLevels;
+    return listed?.length ? AUDIO_QUALITY_LEVELS.filter(level => listed.includes(level)) : UNLISTED_AUDIO_QUALITY_LEVELS;
+};
+// The level a provider is asked for under the stored preference, which is one value for every
+// provider: the preference itself where the provider lists it, else the nearest level it lists
+// at or below (its lowest where it lists none below).
+const audioQualityFor = (providerId: OmniProviderId, preference: AudioQualityPreference): AudioQualityPreference => {
+    const levels = audioQualityLevelsOf(providerId);
+    const rank = AUDIO_QUALITY_LEVELS.indexOf(preference);
+    return [...levels].reverse().find(level => AUDIO_QUALITY_LEVELS.indexOf(level) <= rank) ?? levels[0];
 };
 
 // What is known of each URL handed out by `getAudioSource`, newest last: the level it was asked for
@@ -1374,9 +1382,4 @@ export const omni = {
     },
 };
 
-export { omni };
 export type OmniService = typeof omni;
-export type { LikedListRead } from './omni/accountLikes';
-// 原生补写的红心认领（useCapacitorPlaybackBridge）：值从拆出来的 accountLikes 带出来。
-export { applyNativeLikeOverrides } from './omni/accountLikes';
-export type { NativeLikeOverrideInput } from './omni/accountLikes';

@@ -19,7 +19,6 @@ import {
 } from '../../../../utils/playbackSyncBridge';
 import { resolveStagePlayerPositionSec } from '../../../../utils/stagePlayerSnapshot';
 import { getPlaybackSongKey, getPlaybackSourceRef } from '../../../../utils/appPlaybackGuards';
-import { getNativeDevicePixelRatio } from '../../../../utils/renderPixelRatio';
 import { omni } from '../../../../services/onlineMusic/omni';
 import { createRemoteTrackTransitionFeed, type RemoteTrackTransitionFeed } from './remoteTrackTransitionFeed';
 import { buildRemoteQueueItems, isRemoteQueueCommand } from './remoteQueueFeed';
@@ -60,7 +59,7 @@ type UseElectronPlaybackBridgeOptions = {
      * already does with the displayed track.
      */
     getDisplayAudioElement?: () => HTMLAudioElement | null;
-    effectiveLoopMode: 'off' | 'all' | 'one' | 'shuffle';
+    effectiveLoopMode: 'off' | 'all' | 'one';
     isNowPlayingStageActive: boolean;
     mediaSessionPlayRef: RefObject<() => Promise<void>>;
     mediaSessionPauseRef: RefObject<() => void>;
@@ -544,12 +543,11 @@ export const useElectronPlaybackBridge = ({
         const intervalId = window.setInterval(() => publish(), 500);
         const unsubscribeActions = subscribeRemoteActions(() => publish());
 
-        // 主进程用这个数决定 OBS 画面源的物理尺寸，所以只跟随真实屏幕，不跟渲染分辨率上限。
-        let lastReportedDpr = getNativeDevicePixelRatio();
+        let lastReportedDpr = window.devicePixelRatio || 1;
         const handleResize = () => {
             publish();
             // Only report DPR when it actually changes (avoids unnecessary IPC round-trips).
-            const currentDpr = getNativeDevicePixelRatio();
+            const currentDpr = window.devicePixelRatio || 1;
             if (currentDpr !== lastReportedDpr) {
                 lastReportedDpr = currentDpr;
                 window.electron?.reportDevicePixelRatio(currentDpr);

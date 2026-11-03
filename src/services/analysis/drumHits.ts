@@ -58,11 +58,12 @@ const STEM_RATE = 44100;
 /** The drum hits' kind on a track's stem run (trackStemRun.ts). */
 export const DRUM_HITS_TASK = 'drum hits';
 
-/** Whether the drum stem can run here: the weights are there (whichever copy) and there is a WebGPU to run them on. */
+/** Whether the GPU drum stem can run here: htdemucs_gpu installed and a WebGPU to run it on. */
 export const canRunDrumStem = (): boolean =>
     typeof window !== 'undefined'
-    && modelCanRun('htdemucs_gpu')
-    && hasWebGpu();
+    && typeof window.electron?.getHtdemucsGpuWeights === 'function'
+    && typeof navigator !== 'undefined' && 'gpu' in navigator
+    && modelCanRun('htdemucs_gpu');
 
 /** 44.1 kHz mono to the 22.05 kHz beat_this rate, by the browser's own resampler; the vocal envelope's too (vocalStemRun.ts). */
 export const resampleStem = async (signal: Float32Array): Promise<Float32Array> => {
@@ -87,7 +88,9 @@ const MAX_TRACKS = 24;
 
 /**
  * Names the track whose drum hits are wanted now, or null for none (it was left, or 智能动感模式 is
- * off). Set when a picture asks for the hits; cleared on the track change, not on a picture switch.
+ * off). Set when a picture asks for the hits; cleared when it is left - the track changes, the
+ * picture switches (since the analysis service's 2b: the separation stops and keeps where it was, see
+ * DrumResume) or the switch goes off.
  */
 export const setWantedDrumTrack = (key: string | null): void => {
     setWantedStemTrack(key);

@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next';
 import type { WallSlot } from '../../../components/wall/wallSlots';
 import { BRAVAIS_BLOCK_SHAPE, collectShapeSlots } from './bravaisWallShape';
 import { FLIP_MAX_TILES } from '../../../components/wall/flipPlan';
-import { useDevicePixelRatio } from '../../../hooks/useMediaQuery';
-import { isPortraitWall, resolveLibraryWallSeamHorizontal } from '../../../utils/libraryWallSeamDirection';
+import { useDevicePixelRatio, useMediaQuery } from '../../../hooks/useMediaQuery';
+import { LIBRARY_WALL_PORTRAIT_QUERY, resolveLibraryWallSeamHorizontal } from '../../../utils/libraryWallSeamDirection';
 import { useReducedMotionFor } from '../../../hooks/useReducedMotionFor';
 import { useLatticeSettingsStore } from '../../../stores/useLatticeSettingsStore';
 import { useLibraryWallLookStore } from '../../../stores/useLibraryWallLookStore';
@@ -137,14 +137,11 @@ const BravaisStage: React.FC<LibrarySuiteStageProps> = ({
     const frameRefs = useMemo(() => ({ left: leftRef, right: rightRef, seam: seamRef, seamContent: seamContentRef, tab: tabRef, hint: hintRef }), []);
     const { stateRef: frameRef, renderFrame } = useBravaisFrame(frameRefs);
     const { wallLook, seamLook } = useBravaisWallLook(reportPlayerOcclusion, reportPlayerBackdrop);
-    // 墙面的缩放倍率（双指捏合 / Ctrl+滚轮，与 Lattice 共用一份）：档位 × 倍率才是这一刻的 scale。
-    const wallZoom = useLatticeSettingsStore(state => state.wallZoom);
-    const view = useBravaisViewport(rootRef, wallZoom);
+    const view = useBravaisViewport(rootRef);
     const reducedMotion = useReducedMotionFor('lattice');
     // B11：换层的翻牌 / 波次按「降低动态效果」降级成淡入淡出（lattice 或 collectionMorph，见 bravaisMotion）。
     const reducedTransitions = useBravaisReducedTransitions();
     const devicePixelRatio = useDevicePixelRatio();
-    const performanceMode = useLatticeSettingsStore(state => state.latticePerformanceMode);
     const vignette = useLatticeSettingsStore(state => state.latticeVignette);
     const lightsOn = useLatticeSettingsStore(state => state.latticeLightsOn);
     const tintEnabled = useLatticeSettingsStore(state => state.latticePosterTintEnabled);
@@ -153,9 +150,7 @@ const BravaisStage: React.FC<LibrarySuiteStageProps> = ({
     const tintIntensity = useLatticeSettingsStore(state => state.latticePosterTintIntensity);
     const stackEdges = useLibraryWallLookStore(state => state.collectionStackEdges);
     const seamDirection = useLibraryWallLookStore(state => state.seamDirection);
-    // 竖着还是横着，按**墙面自己的实测尺寸**判（见 isPortraitWall 的注释：媒体查询在个别
-    // WebView 上不派发 change，于是「自动」会一直停在横条那一支）。量到之前按横屏算。
-    const portrait = view ? isPortraitWall(view.width, view.height) : false;
+    const portrait = useMediaQuery(LIBRARY_WALL_PORTRAIT_QUERY);
     const seamHorizontal = resolveLibraryWallSeamHorizontal(seamDirection, portrait);
     // 换层编排里按层算开口时读最新的（不进回调的依赖）。
     const seamHorizontalRef = useRef(seamHorizontal);
@@ -526,7 +521,6 @@ const BravaisStage: React.FC<LibrarySuiteStageProps> = ({
         'lattice-root',
         'bravais-root',
         isDaylight ? 'is-daylight' : '',
-        performanceMode ? 'is-performance' : '',
         vignette ? 'has-vignette' : '',
         lightsOn ? '' : 'is-lights-out',
         tintEnabled ? 'has-poster-tint' : '',
@@ -601,10 +595,7 @@ const BravaisStage: React.FC<LibrarySuiteStageProps> = ({
                     expandedSlotKey={focus.expandedSlotKey}
                     focusedSlotKey={focus.focusedSlotKey}
                     linkedKey={panelFor !== null && panelFor === display?.layer.key ? linkedKey : null}
-                    /* 性能优先：封面按世界尺寸（而不是设备像素）取档，高 DPR 屏上不再去拉大一档的图。 */
-                    pixelScale={performanceMode
-                        ? Math.min((view?.scale ?? 1) * devicePixelRatio, 1)
-                        : (view?.scale ?? 1) * devicePixelRatio}
+                    pixelScale={(view?.scale ?? 1) * devicePixelRatio}
                     reducedMotion={reducedTransitions}
                     didDragRef={camera.pointer.didDragRef}
                     handlers={interactions.handlers}

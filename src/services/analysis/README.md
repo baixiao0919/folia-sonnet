@@ -1,12 +1,12 @@
 # services/analysis
 
-曲目分析的公共底层。automix（`../automix/`）从这里读；节拍效果（`../beatFx/`，智能动感模式）也曾从这里读，已于 2026-10-24 整体移除（鼓点分析 `drumHits.ts` 等因此没有调用方了，保留只为已存盘的数据还能被记账和清掉）。
+曲目分析的公共底层。automix（`../automix/`）和节拍效果（`../beatFx/`，智能动感模式）都从这里读，beatFx 不依赖 automix。
 
 例外：这里还借用了 automix 下三个与 automix 本身无关的工具模块——`signalAnalysis`（梅尔滤波等信号处理）、`uiYield`（让出主线程）、`analysisOffThread`（频谱放到 worker 算）。它们都是无状态的纯计算（`analysisOffThread` 的 worker 还连带 `trackProfile`，同样无状态），不碰 automix 的队列、缓存或播放状态；以后要彻底分层，就把这几个搬进来。
 
 | 文件 | 职责 |
 |---|---|
-| `trackAudio.ts` | 读一首歌**已经在本机**的字节：播放 representation → 媒体缓存 → 本地 URL → 本地文件句柄（App 注册的读取器）。从不下载在线歌曲（Navidrome 这类以 http 提供的曲库源会读，但会检查响应确实是音频）；要不要下载由调用方决定（automix 的 profile 会；过去智能动感模式在在线歌还没进缓存时，会用播放已解析出的音源地址再读一份来分析、不写缓存，那一档已随 beatFx 移除）。另含按分析采样率解码、拆 mid/side。 |
+| `trackAudio.ts` | 读一首歌**已经在本机**的字节：播放 representation → 媒体缓存 → 本地 URL → 本地文件句柄（App 注册的读取器）。从不下载在线歌曲（Navidrome 这类以 http 提供的曲库源会读，但会检查响应确实是音频）；要不要下载由调用方决定（automix 的 profile 会；智能动感模式在在线歌还没进缓存时，用播放已解析出的这首歌的音源地址再读一份来分析，不写缓存，见 `services/beatFx/beatFxSource.ts`）。另含按分析采样率解码、拆 mid/side。 |
 | `beatThis.ts` | Beat This! 的前处理契约：梅尔频谱、1500 帧分块、峰值挑选、网格折算。推理先走 GPU，`cpuFallback` 决定能否退到 CPU（只有 final0 有 CPU 路径）。模型只有一个：final0（`beat_this-wgsl.bin`，随应用打包），automix 和智能动感模式共用。 |
 | `beatThisGpu.ts` + `beatThisWgsl/` | 渲染进程 Worker 里的 WebGPU 推理，Beat This! final0 和 htdemucs 共用同一个 GPU device，Worker 里各加载一次、同时常驻；`probeBeatThisGpu` 给设置页判断有没有可用 GPU。 |
 | `beatGrid.ts` | 整首歌的拍点，automix 和智能动感模式共用一份：先读存盘结果，正在跑就等同一次，否则跑一次并存盘（`beat_this_grid_<分析 key>`，归入「分析」缓存类别）。GPU 跑的那次顺带算重音、一起存；CPU 跑的没有重音，智能动感要用时再补。以前 small0 存的 `beat_this_small_grid_` 不再读取，清分析缓存时一并清掉。只存整首；只读了开头的 automix 分析自己跑、不存。 |

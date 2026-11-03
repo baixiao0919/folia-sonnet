@@ -236,15 +236,6 @@ export const Grid3D: React.FC<Grid3DProps> = (props) => {
 
     const showUpdateIndicator = useUpdateIndicator();
 
-    // 「AI 主题」页签：不铺墙，直接开那一屏的曲目列表（云端没有歌单可列）。
-    useLibraryHomeCloudThemeEntry({
-        tab: homeViewTab,
-        enabled: isInteractive,
-        onOpenCollection: collection => onOpenGridView?.(collection),
-        label: t('home.aiTheme'),
-        notice: t('home.aiThemeNotice'),
-    });
-
     // Reset focused index when switching tabs.
     useEffect(() => {
         setFocusedIndex(0);
@@ -629,7 +620,7 @@ export const Grid3D: React.FC<Grid3DProps> = (props) => {
                                 onMouseEnter={() => setScanDetailsExpanded(true)}
                                 onMouseLeave={() => setScanDetailsExpanded(false)}
                             >
-                                <Button
+                                <button
                                     onClick={() => setScanDetailsExpanded(prev => !prev)}
                                     className="relative rounded-full p-px transition-all"
                                     style={{
@@ -646,7 +637,7 @@ export const Grid3D: React.FC<Grid3DProps> = (props) => {
                                             {scanProgressPercent}%
                                         </span>
                                     </div>
-                                </Button>
+                                </button>
                                 <AnimatePresence>
                                     {scanDetailsExpanded && (
                                         <motion.div
@@ -760,19 +751,19 @@ export const Grid3D: React.FC<Grid3DProps> = (props) => {
                                     );
                                 })}
                                 {props.extraTabs?.map(tab => (
-                                    <Button key={tab.id} type="button" onClick={tab.select}
+                                    <button key={tab.id} type="button" onClick={tab.select}
                                         className={`relative inline-flex items-center justify-center px-4 py-1.5 rounded-full text-xs md:text-sm font-medium whitespace-nowrap ${navPillInactiveText}`}>
                                         {tab.label}
-                                    </Button>
+                                    </button>
                                 ))}
                                 {stageEnabled && (
-                                    <Button
+                                    <button
                                         onClick={() => onOpenStagePlayer?.()}
                                         data-stage-active={stageIsActive ? 'true' : 'false'}
                                         className={`relative inline-flex items-center justify-center px-4 py-1.5 rounded-full text-xs md:text-sm font-medium transition-colors duration-300 whitespace-nowrap ${navPillInactiveText}`}
                                     >
                                         <span className="relative z-10">{t('home.stage')}</span>
-                                    </Button>
+                                    </button>
                                 )}
                                 {/* 播放队列的海报视图和 Stage 一样属于「去哪儿」，所以它在这一排，
                                     而不是标题旁的工具图标。没有在播歌曲时队列也是空的，直接不出现。
@@ -817,7 +808,7 @@ export const Grid3D: React.FC<Grid3DProps> = (props) => {
                                     onClick={() => handleSearch()}
                                 />
                             )}
-                            <TextField
+                            <input
                                 ref={searchInputRef}
                                 type="text"
                                 placeholder={homeViewTab === 'local' ? t('home.searchLocal') : homeViewTab === 'navidrome' ? t('home.searchNavidrome') : t('home.searchDatabase')}

@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compressConfig, decompressConfig } from '@/utils/appearanceCodec';
-import {
-    DEFAULT_NOMAND_BACKGROUND_TUNING,
-    DEFAULT_SONNET_TUNING,
-    DEFAULT_TEMPERA_TUNING,
-    SONNET_CAMERA_INTENSITY_MAX,
-} from '@/types';
+import { DEFAULT_NOMAND_BACKGROUND_TUNING, DEFAULT_SONNET_TUNING, DEFAULT_TEMPERA_TUNING } from '@/types';
 
 // test/unit/visualizer/visualSettingsImportExport.test.ts
 // Verifies visual settings configuration compression, base64 encoding, and decompression/restoration.
@@ -141,6 +136,7 @@ describe('Visual Settings Import and Export', () => {
             soulActiveEnabled: true,
             gradientEnabled: true,
             gradientIntensity: 0.7,
+            keywordColoringEnabled: false,
         },
         monetBackgroundTuning: {
             backgroundSource: 'cover-derived' as const,
@@ -181,7 +177,10 @@ describe('Visual Settings Import and Export', () => {
             overlayOpacity: 0.5,
         },
         monetTuning: {
+            keywordColoringEnabled: false,
             showDescription: false,
+            showAudioVisualization: false,
+            audioStyle: 'line' as const,
             fontScale: 1.1,
             portraitSource: 'cover' as const,
             portraitOffsetX: -120,
@@ -236,7 +235,7 @@ describe('Visual Settings Import and Export', () => {
         expect(decoded.latentBackgroundTuning).toEqual(sampleConfig.latentBackgroundTuning);
         expect(decoded.monetTuning?.portraitOffsetX).toBe(-120);
         expect(decoded.monetTuning?.portraitStyle).toBe('square');
-        expect(decoded.monetTuning?.showDescription).toBe(false);
+        expect(decoded.monetTuning?.showAudioVisualization).toBe(false);
         expect(decoded.sonnetTuning?.enableTransitions).toBe(true);
         expect(decoded.sonnetTuning?.outerFrameMode).toBe('frame');
         expect(decoded.sonnetTuning?.postProcessLensDistortion)
@@ -310,8 +309,7 @@ describe('Visual Settings Import and Export', () => {
 
     it('round-trips Sonnet tuning through the renderer tuning bundle', () => {
         const sonnet = {
-            // 上限就是默认值 0.7，往返测试取上限以内的值
-            cameraIntensity: 0.5,
+            cameraIntensity: 1.25,
             typographyMotion: 0.8,
             mgDensity: 1.6,
             textureResolution: 4,
@@ -325,31 +323,6 @@ describe('Visual Settings Import and Export', () => {
 
         expect(decoded.visualizerMode).toBe('sonnet');
         expect(decoded.visualizerTunings?.sonnet).toEqual(sonnet);
-    });
-
-    it('pulls a Sonnet camera intensity from an old code back inside the cap', () => {
-        // 旧配置码里镜头强度能写到 2：超过 0.7 画面会甩出屏幕外，解码时夹回来。
-        // 两条路都要夹：`snt` 走逐模式解码，`vt`（OBS 与主题预览直接用它渲染）是整包透传。
-        const overCap = { ...DEFAULT_SONNET_TUNING, cameraIntensity: 1.25 };
-
-        const viaSonnetTuning = decompressConfig(compressConfig({ sonnetTuning: overCap }));
-        expect(viaSonnetTuning.sonnetTuning?.cameraIntensity).toBe(SONNET_CAMERA_INTENSITY_MAX);
-
-        const viaBundle = decompressConfig(compressConfig({
-            visualizerMode: 'sonnet',
-            visualizerTunings: { sonnet: overCap },
-        }));
-        expect(viaBundle.visualizerTunings?.sonnet?.cameraIntensity).toBe(SONNET_CAMERA_INTENSITY_MAX);
-        // 没超标的不动，引用也不换。
-        expect(decompressConfig(compressConfig({
-            visualizerTunings: { sonnet: { ...overCap, cameraIntensity: 0.5 } },
-        })).visualizerTunings?.sonnet?.cameraIntensity).toBe(0.5);
-    });
-
-    it('makes the Sonnet camera cap the default value', () => {
-        // 镜头运动再高就会把画面甩出屏幕外，所以「能调多少」和「默认多少」都定在 0.7。
-        expect(SONNET_CAMERA_INTENSITY_MAX).toBe(0.7);
-        expect(DEFAULT_SONNET_TUNING.cameraIntensity).toBe(SONNET_CAMERA_INTENSITY_MAX);
     });
 
     it('migrates the removed Nomand random dithering option to 8x8', () => {

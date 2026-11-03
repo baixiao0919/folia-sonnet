@@ -234,8 +234,8 @@ export interface FoliumSong {
 /** The host player state. */
 export type FoliumPlaybackState = 'playing' | 'paused' | 'stopped';
 
-/** The repeat mode. `all` repeats the queue, `one` the current song, `shuffle` plays the queue shuffled. */
-export type FoliumLoopMode = 'off' | 'all' | 'one' | 'shuffle';
+/** The repeat mode. `all` repeats the queue, `one` the current song. */
+export type FoliumLoopMode = 'off' | 'all' | 'one';
 
 /** One entry of the play queue, as `folium.playback.getQueue()` lists it. */
 export interface FoliumQueueItem {
@@ -1506,58 +1506,6 @@ export interface FoliumNetService {
     fetch(url: string, init?: FoliumFetchInit): Promise<FoliumFetchResponse>;
 }
 
-/** Folium 1.5: which AI the host will ask, as configured in the host's own AI settings. */
-export interface FoliumAiTarget {
-    /**
-     * The provider selected in Settings → AI.
-     *
-     * `deepseek` is an OpenAI-compatible endpoint with a fixed address, exposed
-     * as its own provider because the form then only has to ask for a key — the
-     * request still goes out through the OpenAI transport.
-     */
-    provider: 'gemini' | 'deepseek' | 'mimo' | 'qwen' | 'tencentcloud' | 'openai' | 'anthropic' | 'kimi' | 'glm' | 'custom';
-    /** The model actually sent; where the settings leave it blank the host fills in its own default. */
-    model: string;
-}
-
-/** Folium 1.5: one prompt for `folium.ai.complete`. Names deliberately say `system` / `prompt`, not `messages`. */
-export interface FoliumAiCompletionRequest {
-    /** The standing rules the answer must follow. */
-    system: string;
-    /** Everything specific to this call. */
-    prompt: string;
-    /** 0–2; left out means the temperature saved in the host's AI settings. */
-    temperature?: number;
-    /** Output token ceiling. Best effort: the key differs per provider and some ignore it. */
-    maxTokens?: number;
-    /** Ask for JSON output where the provider supports it. Default `true`. */
-    json?: boolean;
-    /** Aborts the request; a mod should wire this to its own deactivate. */
-    signal?: AbortSignal;
-}
-
-/** Folium 1.5: what `folium.ai.complete` answered. */
-export interface FoliumAiCompletionResult {
-    /** The answer, unparsed — validating it against the mod's own contract is the caller's job. */
-    text: string;
-    /** The provider and model that answered. */
-    target: FoliumAiTarget;
-}
-
-/**
- * `folium.ai` (Folium 1.5): the AI service the user configured in the host's own
- * AI settings. The mod never holds a credential — it is read per request, used
- * inside the call, and never returned, thrown or logged.
- */
-export interface FoliumAiService {
-    /** Whether the selected provider has a credential in the host's settings. Never throws. */
-    isConfigured(): boolean;
-    /** What the next completion would use; null when nothing is configured. Never throws. */
-    describe(): FoliumAiTarget | null;
-    /** Runs one prompt; needs the `ai.request` permission. */
-    complete(request: FoliumAiCompletionRequest): Promise<FoliumAiCompletionResult>;
-}
-
 /**
  * Folium 1.7: who is signed in to one online source, as `folium.account.getState()` and the
  * `account.changed` event give it. Frozen.
@@ -2500,8 +2448,6 @@ export interface FoliumClientApi {
     readonly ui: FoliumUiService;
     /** Network access through the host. */
     readonly net: FoliumNetService;
-    /** Folium 1.5: the host's AI connection, as configured in its own AI settings. */
-    readonly ai: FoliumAiService;
     /** This mod's data file. */
     readonly storage: FoliumStorage;
     /** Folium 1.7: the values of this mod's `secret` settings fields. */

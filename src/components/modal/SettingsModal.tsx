@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useState, useEffect, useMemo, useRef, startTransition } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { MotionValue } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -6,25 +6,38 @@ import { getCacheUsageByCategory, clearCacheByCategory } from '../../services/db
 import { forgetSettledDrumHits } from '../../services/analysis/drumHits';
 import { clearBalanceRuntime } from '../../services/volumeBalance/balanceRecords';
 import { DualTheme, StageStatus, StageSource, Theme, ThemeMode, type NowPlayingConnectionStatus, type ReplayGainMode } from '../../types';
+import { getNavidromeConfig, saveNavidromeConfig, clearNavidromeConfig, hashPassword, navidromeApi, setNavidromeEnabled, getCachedNavidromeServerProfile, refreshNavidromeServerProfile, getNavidromeConfigOrigin, dismissNavidromeServerPreset } from '../../services/navidromeService';
+import { fetchNavidromeServerPreset, markNavidromeConfigAsPresetIfMatching, restoreNavidromeServerPreset } from '../../services/navidromeServerPreset';
+import { NavidromeConfig, NavidromeServerProfile } from '../../types/navidrome';
+import VisPlayground from '../visualizer/window/VisPlayground';
+import { useVisualizerTunings } from '../visualizer/useVisualizerTunings';
+import ThemePark from './ThemePark';
+import LyricFilterSettingsModal from './LyricFilterSettingsModal';
+import type { LyricFilterDraft } from './LyricFilterSettingsModal';
+import GlobalLyricOffsetModal from './settings/GlobalLyricOffsetModal';
 import type { PlayerCapConnectionStatus } from '../../types/playerCap';
 import { PageHeader } from './settings/kit';
 import { SettingsKitThemeContext, settingsTokens } from './settings/kit/kitTheme';
 import { kitMotionTokens, useKitReducedMotion } from './settings/kit/motion';
+import { parseNumberText } from './settings/kit/numberText';
 import { SETTINGS_PAGES, SETTINGS_PAGE_OPTIONS } from './settings/pages';
 import HelpPage from './settings/pages/HelpPage';
-import { SettingsPageContext, type SettingsPageContextValue } from './settings/pages/settingsPageContext';
-import meowImageUrl from '../../../build/miao.webp';
+import { SettingsPageContext, type CacheCategory, type SettingsPageContextValue } from './settings/pages/settingsPageContext';
+import { AiHelpPromptModal } from './AiHelpPromptModal';
+import ReleaseNotesDialog from './ReleaseNotesDialog';
+import meowImageUrl from '../../../build/miao.png';
 import type { LyricData } from '../../types';
 import { type SettingsModalState, type SettingsSubviewId, type VisualizerSettingsSection } from '../../stores/useSettingsModalStore';
 import { SettingsAnchorProvider, useSettingsAnchorList, useSettingsAnchorStore } from './settings/navigation/SettingsAnchorContext';
 import SettingsSearchResults from './settings/navigation/SettingsSearchResults';
 import SettingsSideList from './settings/navigation/SettingsSideList';
-import { settingsAnchorSubview } from '../../utils/settingsAnchorModel';
+import { settingsAnchorSubview } from './settings/navigation/settingsAnchorModel';
 import { buildSettingsNavGroups, findSettingsNavItem, type SettingsSectionId } from './settings/navigation/settingsNavModel';
 import { buildSettingsSearchEntries, searchSettings, type SettingsSearchEntry } from './settings/navigation/settingsNavSearch';
 import { isSettingsSectionSubview, resolveInitialSettingsSection, sectionForSettingsSubview, writeLastSettingsSection } from './settings/navigation/settingsLastSection';
 import { useSettingsLanding, type SettingsLandingTarget } from './settings/navigation/useSettingsLanding';
 import { runsOnWindows } from '../../utils/platform';
+import { openOutsideLink } from '../../utils/system/outsideLink';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useSettingsScrollSpy } from '../../hooks/useSettingsScrollSpy';
 import { useReducedMotionFor } from '../../hooks/useReducedMotionFor';
@@ -34,16 +47,19 @@ import type { LyricApiStatus } from '../../types/lyricApi';
 import type { SongResult } from '../../types';
 import type { ThemeCacheSongKey } from '../../services/themeCache';
 import type { ThemeGenerationSource } from '../../services/themePreferences';
-import type { LyricFilterDraft } from './LyricFilterSettingsModal';
-import { usePlayerChromeSettingsStore } from '../../stores/usePlayerChromeSettingsStore';
+import { selectVisualizerSettingsSnapshot, useVisualizerSettingsStore } from '../../stores/useVisualizerSettingsStore';
+import { backgroundTuningConfig } from '../visualizer/tuningRegistry';
+import { selectVisualizerAssetSnapshot, useVisualizerAssetStore } from '../../stores/useVisualizerAssetStore';
+import { selectLyricSettingsSnapshot, useLyricSettingsStore } from '../../stores/useLyricSettingsStore';
+import { selectTypographySettingsSnapshot, useTypographySettingsStore } from '../../stores/useTypographySettingsStore';
+import { selectPlayerChromeSettingsSnapshot, usePlayerChromeSettingsStore } from '../../stores/usePlayerChromeSettingsStore';
 import { selectThemeSettingsSnapshot, useThemeSettingsStore } from '../../stores/useThemeSettingsStore';
 import { selectDesktopSettingsSnapshot, useDesktopSettingsStore } from '../../stores/useDesktopSettingsStore';
 import { useSettingsModalStore } from '../../stores/useSettingsModalStore';
 import { setNavidromeEnabledState, useLibraryStore } from '../../stores/useLibraryStore';
 import { useGlass } from '@/shinoinject/useGlass';
 
-// Synchronous on purpose: the first render has to know which sections exist before the isElectron state below settles.
-const hasElectronBridge = () => typeof window !== 'undefined' && Boolean((window as any).electron);
+const DEFAULT_OPENAI_TEMPERATURE = '0.7';
 
 interface SettingsModalProps {
     onClose: () => void;
@@ -94,6 +110,19 @@ interface SettingsModalProps {
     aiTheme?: DualTheme | null;
     customTheme?: DualTheme | null;
 }
+
+const QUARK_DOWNLOAD_URL = 'https://pan.quark.cn/s/6e4c6fa3bc6f';
+const BAIDU_DOWNLOAD_URL = 'https://pan.baidu.com/s/1f0x3g-8PMcNCO-TJ5z1rPw?pwd=flia';
+const DEFAULT_UPDATE_CHANNEL: 'realeco' | 'limo' | 'cielo' | 'internal' = __APP_RELEASE_CHANNEL__ === 'limo'
+    ? 'limo'
+    : __APP_RELEASE_CHANNEL__ === 'cielo'
+        ? 'cielo'
+        : __APP_RELEASE_CHANNEL__ === 'internal'
+            ? 'internal'
+            : 'realeco';
+
+// Synchronous on purpose: the first render has to know which sections exist before the isElectron state below settles.
+const hasElectronBridge = () => typeof window !== 'undefined' && Boolean((window as any).electron);
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
     onClose,
@@ -291,11 +320,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         }
     };
     const contentScrollRef = useRef<HTMLDivElement>(null);
-    // Matches the md:flex-row split below; the two sidebars are different enough to render separately.
-    // 手机适配打开时强制走单列：手机竖屏宽度也过 768px 的断点，但那个宽度下双列会把
-    // 内容区压到只剩三分之一，导航列反倒成了主内容。
-    const phoneFitEnabled = useAndroidLayoutSettingsStore(state => state.phoneFitEnabled);
-    const isWideSettingsLayout = useMediaQuery('(min-width: 768px)') && !phoneFitEnabled;
+    // Matches the md: split of the window: under it the side list is a strip that scrolls sideways.
+    const isWideSettingsLayout = useMediaQuery('(min-width: 768px)');
     const settingsAnchorStore = useSettingsAnchorStore();
     const settingsAnchors = useSettingsAnchorList(settingsAnchorStore);
 
@@ -933,17 +959,52 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
         closeSubview();
     };
+    const updateBadgeLabel = (() => {
+        if (!electronSettings.ENABLE_UPDATE_CHECK || updateStatus?.status === 'disabled') {
+            return t('options.updateCheckDisabled') || 'Disabled';
+        }
+
+        if (updateStatus?.status === 'checking') {
+            return t('options.updateChecking') || 'Checking...';
+        }
+
+        if (updateStatus?.availableVersion) {
+            return `${t('options.updateAvailable') || 'Found'} v${updateStatus.availableVersion}`;
+        }
+
+        if (updateStatus?.status === 'latest') {
+            return t('options.updateLatest') || 'Up to date';
+        }
+
+        if (updateStatus?.status === 'error') {
+            return t('options.updateCheckFailed') || 'Check failed';
+        }
+
+        if (updateStatus?.status === 'unsupported') {
+            return t('options.updateUnsupported') || 'Unavailable';
+        }
+
+        return t('options.updateLatest') || 'Up to date';
+    })();
+    const canDownloadUpdate = Boolean(
+        electronSettings.ENABLE_UPDATE_CHECK &&
+        updateStatus?.autoUpdateSupported &&
+        updateStatus?.availableVersion &&
+        updateStatus.status !== 'downloading' &&
+        updateStatus.status !== 'downloaded'
+    );
+    const canEnableAutoUpdate = Boolean(electronSettings.ENABLE_UPDATE_CHECK && updateStatus?.autoUpdateSupported);
 
     const settingsNavGroups = useMemo(
-        () => buildSettingsNavGroups(t, { isElectron: electron.isElectron }),
-        [t, electron.isElectron],
+        () => buildSettingsNavGroups(t, { isElectron }),
+        [t, isElectron],
     );
     const activeSettingsNavItem = findSettingsNavItem(settingsNavGroups, activeSettingsSection);
     // A category this build does not list (a desktop-only one on web) has no page to show.
     const ActivePage = activeSettingsNavItem ? SETTINGS_PAGES[activeSettingsSection] : null;
     const searchEntries = useMemo(
-        () => buildSettingsSearchEntries(settingsNavGroups, SETTINGS_PAGE_OPTIONS, t, { isElectron: electron.isElectron }),
-        [settingsNavGroups, t, electron.isElectron],
+        () => buildSettingsSearchEntries(settingsNavGroups, SETTINGS_PAGE_OPTIONS, t, { isElectron }),
+        [settingsNavGroups, t, isElectron],
     );
     const searchHits = useMemo(
         () => searchSettings(searchEntries, searchQuery, i18n.language),
@@ -972,7 +1033,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     const landOnGroup = useSettingsLanding(landingTarget, contentScrollRef, settingsAnchors, scrollToAnchor, prefersReducedMotion);
 
     const pageContext: SettingsPageContextValue = {
-        isElectron: electron.isElectron,
+        isElectron,
         themeControls: {
             bgMode,
             hasCustomTheme,
@@ -980,7 +1041,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             songThemeAutoSwitchEnabled,
             songThemeAutoGenerateEnabled,
             themeGenerationSource,
-            aiApiKeyStatus: electron.aiApiKeyStatus,
+            aiApiKeyStatus,
             onApplyDefaultTheme,
             onApplyCustomTheme,
             onToggleCustomThemePreferred,
@@ -1014,29 +1075,29 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             },
             integration: {
                 navidrome: {
-                    navidromeConfigured: navidrome.navidromeConfigured,
-                    navidromeEnabled: navidrome.navidromeEnabled,
-                    navidromePassword: navidrome.navidromePassword,
-                    navidromeServerProfile: navidrome.navidromeServerProfile,
-                    navidromeTestStatus: navidrome.navidromeTestStatus,
-                    navidromeUrl: navidrome.navidromeUrl,
-                    navidromeUsername: navidrome.navidromeUsername,
-                    navidromeCanRestorePreset: navidrome.navidromeCanRestorePreset,
-                    navidromeRestoreFailed: navidrome.navidromeRestoreFailed,
-                    navidromeRestoring: navidrome.navidromeRestoring,
-                    navidromeUsesPreset: navidrome.navidromeUsesPreset,
-                    onRestoreNavidromePreset: navidrome.onRestoreNavidromePreset,
-                    onClearNavidrome: navidrome.onClearNavidrome,
-                    onToggleNavidrome: navidrome.onToggleNavidrome,
-                    setNavidromePassword: navidrome.setNavidromePassword,
-                    setNavidromeUrl: navidrome.setNavidromeUrl,
-                    setNavidromeUsername: navidrome.setNavidromeUsername,
-                    testNavidromeConnection: navidrome.testNavidromeConnection,
+                    navidromeConfigured,
+                    navidromeEnabled,
+                    navidromePassword,
+                    navidromeServerProfile,
+                    navidromeTestStatus,
+                    navidromeUrl,
+                    navidromeUsername,
+                    navidromeCanRestorePreset: navidromePresetAvailable && !navidromeUsesPreset,
+                    navidromeRestoreFailed,
+                    navidromeRestoring,
+                    navidromeUsesPreset,
+                    onRestoreNavidromePreset: handleRestoreNavidromePreset,
+                    onClearNavidrome: handleClearNavidrome,
+                    onToggleNavidrome: handleToggleNavidromeEnabled,
+                    setNavidromePassword,
+                    setNavidromeUrl,
+                    setNavidromeUsername,
+                    testNavidromeConnection,
                 },
                 discord: {
-                    enabled: electron.electronSettings.DISCORD_RICH_PRESENCE_ENABLED,
-                    onToggle: electron.handleToggleDiscordPresence,
-                    status: electron.discordPresenceStatus,
+                    enabled: electronSettings.DISCORD_RICH_PRESENCE_ENABLED,
+                    onToggle: handleToggleDiscordPresence,
+                    status: discordPresenceStatus,
                 },
                 lyricApi: {
                     status: lyricApiStatus,
@@ -1057,39 +1118,39 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 },
             },
             storage: {
-                cacheDirectory: electron.cacheDirectory,
-                cacheDirectoryIsDefault: electron.cacheDirectoryIsDefault,
-                cacheDirectoryStatus: electron.cacheDirectoryStatus,
-                cacheSizes: cache.cacheSizes,
-                isCleaning: cache.isCleaning,
-                mediaCount: cache.mediaCount,
-                onChooseCacheDirectory: electron.chooseCacheDirectory,
-                onClear: cache.clearCategory,
+                cacheDirectory,
+                cacheDirectoryIsDefault,
+                cacheDirectoryStatus,
+                cacheSizes,
+                isCleaning,
+                mediaCount,
+                onChooseCacheDirectory: handleChooseCacheDirectory,
+                onClear: handleClear,
             },
             desktop: {
                 model: {
-                    canDownloadUpdate: electron.canDownloadUpdate,
-                    canEnableAutoUpdate: electron.canEnableAutoUpdate,
-                    electronSaveStatus: electron.electronSaveStatus,
-                    electronSettings: electron.electronSettings,
-                    onCheckForUpdates: electron.handleCheckForUpdates,
-                    onClearAiApiKey: electron.handleClearAiApiKey,
-                    onDownloadUpdate: electron.handleDownloadUpdate,
-                    onInstallUpdate: electron.handleInstallUpdate,
-                    onOpenBaiduDownload: electron.handleOpenBaiduDownload,
-                    onOpenChinaDownload: electron.handleOpenChinaDownload,
-                    onUpdateChannelChange: electron.handleUpdateChannelChange,
-                    onSaveElectronSettings: electron.saveElectronSettings,
-                    onToggleAutoUpdate: electron.handleToggleAutoUpdate,
-                    onToggleUpdateCheck: electron.handleToggleUpdateCheck,
+                    canDownloadUpdate,
+                    canEnableAutoUpdate,
+                    electronSaveStatus,
+                    electronSettings,
+                    onCheckForUpdates: handleCheckForUpdates,
+                    onClearAiApiKey: handleClearAiApiKey,
+                    onDownloadUpdate: handleDownloadUpdate,
+                    onInstallUpdate: handleInstallUpdate,
+                    onOpenBaiduDownload: handleOpenBaiduDownload,
+                    onOpenChinaDownload: handleOpenChinaDownload,
+                    onUpdateChannelChange: handleUpdateChannelChange,
+                    onSaveElectronSettings: saveElectronSettings,
+                    onToggleAutoUpdate: handleToggleAutoUpdate,
+                    onToggleUpdateCheck: handleToggleUpdateCheck,
                     savedAiApiKeys: {
-                        GEMINI_API_KEY: electron.savedElectronAiCredentials.GEMINI_API_KEY,
-                        OPENAI_API_KEY: electron.savedElectronAiCredentials.OPENAI_API_KEY,
+                        GEMINI_API_KEY: savedElectronAiCredentials.GEMINI_API_KEY,
+                        OPENAI_API_KEY: savedElectronAiCredentials.OPENAI_API_KEY,
                     },
-                    savedOpenAIKeyEndpoint: electron.savedElectronAiCredentials.OPENAI_API_KEY_ENDPOINT,
-                    setElectronSettings: electron.setElectronSettings,
-                    updateBadgeLabel: electron.updateBadgeLabel,
-                    updateStatus: electron.updateStatus,
+                    savedOpenAIKeyEndpoint: savedElectronAiCredentials.OPENAI_API_KEY_ENDPOINT,
+                    setElectronSettings,
+                    updateBadgeLabel,
+                    updateStatus,
                 },
                 preferences: {
                     onToggleOpenPlayerOnLaunch,
@@ -1099,7 +1160,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             lab: {
                 voiceInputPause: {
                     enabled: voiceInputPauseEnabled,
-                    supported: electron.isElectron && runsOnWindows(),
+                    supported: isElectron && runsOnWindows(),
                     onToggle: () => onToggleVoiceInputPause(!voiceInputPauseEnabled),
                 },
             },
@@ -1115,7 +1176,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             exit={{ opacity: 0 }}
             transition={shellTransition}
             data-folia-keyboard-window="true"
-            data-folia-settings-overlay="true"
             data-ponder-page-scope={activeTab === 'help' ? 'help-page' : 'settings-page'}
             className="fixed inset-0 z-[100] flex items-center justify-center px-4 py-8 sm:px-5 sm:py-12"
             style={{ backgroundColor: overlayBackground }}
@@ -1125,7 +1185,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             <motion.div
                 {...panelMotion}
                 transition={shellTransition}
-                data-folia-settings-panel="true"
                 role="dialog"
                 aria-modal="true"
                 aria-label={t('options.settingsWindowName')}
@@ -1354,9 +1413,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             <LyricFilterSettingsModal
                 isOpen={showLyricFilterSettings}
                 isDaylight={isDaylight}
-                theme={theme}
-                initialVisualizerSection={initialVisualizerSection}
-                themeParkInitialTheme={themeParkInitialTheme}
                 currentSongTitle={currentSongTitle}
                 initialRules={lyricLineRules}
                 initialStaffPolicy={lyricStaffPolicy}
@@ -1372,24 +1428,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 isDaylight={isDaylight}
                 lyrics={currentLyrics}
                 lyricCurrentTime={lyricCurrentTime}
-                loadLyricFilterPreview={loadLyricFilterPreview}
-                onSaveLyricFilterPattern={onSaveLyricFilterPattern}
-                onSaveCustomTheme={onSaveCustomTheme}
-                onSaveAiTheme={onSaveAiTheme}
-                open={{
-                    visPlayground: showVisPlayground,
-                    themePark: showThemePark,
-                    lyricFilter: showLyricFilterSettings,
-                    globalLyricOffset: showGlobalLyricOffset,
-                    aiHelp: showAiHelpPrompt,
-                    releaseNotes: showReleaseNotes,
-                }}
-                onCloseVisPlayground={() => closeSubviewOrModal(() => setShowVisPlayground(false))}
-                onCloseThemePark={() => closeSubviewOrModal(() => setShowThemePark(false))}
-                onCloseLyricFilter={() => closeSubviewOrModal(() => setShowLyricFilterSettings(false))}
-                onCloseGlobalLyricOffset={() => closeSubviewOrModal(() => setShowGlobalLyricOffset(false))}
-                onCloseAiHelp={() => setShowAiHelpPrompt(false)}
-                onCloseReleaseNotes={() => setShowReleaseNotes(false)}
+                onClose={() => closeSubviewOrModal(() => setShowGlobalLyricOffset(false))}
+            />
+            <AiHelpPromptModal
+                isOpen={showAiHelpPrompt}
+                isDaylight={isDaylight}
+                onClose={() => setShowAiHelpPrompt(false)}
+            />
+            <ReleaseNotesDialog
+                isOpen={showReleaseNotes}
+                isDaylight={isDaylight}
+                onClose={() => setShowReleaseNotes(false)}
             />
         </motion.div>
     );

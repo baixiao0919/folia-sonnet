@@ -18,9 +18,9 @@
 | library | 256+ |
 | services | 256+ |
 | backend/electron | 128+ |
-| src (其他) | 128+ |
 | utils | 128+ |
 | hooks | 64+ |
+| src (其他) | 64+ |
 | 其他 | 64+ |
 | stores | 32+ |
 | types | 16+ |
@@ -66,7 +66,6 @@
 | 32+ | `src/library/core/home/homeModel.contract.ts` |
 | 32+ | `src/library/suites/bravais/bravaisLayer.ts` |
 | 32+ | `src/mods/types.ts` |
-| 32+ | `src/platform/runtime.ts` |
 | 32+ | `src/services/baseThemes.ts` |
 | 32+ | `src/services/onlineMusic/failure/onlineFailureCase.ts` |
 | 32+ | `src/services/onlineMusic/providerRegistry.ts` |
@@ -80,7 +79,6 @@
 | 32+ | `src/types/hifi.ts` |
 | 32+ | `src/types/localLibrary.ts` |
 | 32+ | `src/types/navidrome.ts` |
-| 32+ | `src/utils/appPlaybackHelpers.ts` |
 | 32+ | `src/utils/coverUrl.ts` |
 | 32+ | `src/utils/fontStacks.ts` |
 | 32+ | `src/utils/lyricRenderQuality.ts` |
@@ -134,7 +132,6 @@
 - `dev/probes/nowPlayingToastTransitionBorder.probe.tsx`
 - `dev/probes/pagePonder.probe.tsx`
 - `dev/probes/pendoloSubtitleDualRow.probe.tsx`
-- `dev/probes/platformColumn.probe.tsx`
 - `dev/probes/playbackLyricsSettings.probe.tsx`
 - `dev/probes/playerBarModButtons.probe.tsx`
 - `dev/probes/playerBottomBar.probe.tsx`
@@ -267,7 +264,6 @@
 - `src/components/visualizer/nebbia/entry.tsx`
 - `src/components/visualizer/partita/entry.tsx`
 - `src/components/visualizer/pendolo/entry.tsx`
-- `src/components/visualizer/prompt/entry.tsx`
 - `src/components/visualizer/sonnet/entry.tsx`
 - `src/components/visualizer/still/entry.tsx`
 - `src/components/visualizer/tempera/entry.tsx`
@@ -329,12 +325,20 @@
 
 下面这些边的依赖方向本身就是错的：
 
-- `src/hooks/useCapacitorPlaybackBridge.ts` → `src/services/onlineMusic/feiniuTransport.ts`  —— 普通调用应经过 omni，不应直连 provider adapter/transport
+- `src/stores/useVisualizerSettingsStore.ts` → `src/components/visualizer/registry.tsx`  —— store 不应依赖组件
+- `src/utils/lyrics/lyricMatchSources.ts` → `src/stores/useOnlineProviderAccountStore.ts`  —— 纯变换不应依赖 UI 或状态
 
 ### 目录归属存疑
 
 这些边命中了规则，但目标模块在运行时根本不含 UI（不传递依赖 react）。
 依赖方向没问题，是文件住在了 UI 目录（`src/components/`、`src/library/` 的 suites / app）下面。修法是移动文件，不是改依赖。
 
+- `src/services/obs/visualSettingsConfig.ts` → `src/components/visualizer/tuningRegistry.ts`
+- `src/services/ponder/pagePonderTarget.ts` → `src/components/modal/settings/navigation/settingsAnchorModel.ts`
+- `src/services/sync/settingsSnapshot.ts` → `src/components/visualizer/tuningRegistry.ts`
+- `src/stores/useExploreFeedStore.ts` → `src/components/app/home/explore/exploreFeedMemory.ts`
+- `src/stores/usePlaybackStore.ts` → `src/components/app/playback/createCoverUrlResolver.ts`
+- `src/stores/useSettingsModalStore.ts` → `src/components/command-palette/pinnedCommandPreferences.ts`
 - `src/stores/useVisualizerSettingsStore.ts` → `src/components/visualizer/tuningRegistry.ts`
+- `src/utils/themeColorMath.ts` → `src/components/visualizer/colorMix.ts`
 

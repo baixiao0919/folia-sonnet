@@ -10,19 +10,13 @@ export type LibraryWallSeamDirection = 'auto' | 'auto-reverse' | 'vertical' | 'h
 /** 设置分区与命令面板列出的顺序。 */
 export const LIBRARY_WALL_SEAM_DIRECTIONS: readonly LibraryWallSeamDirection[] = Object.freeze(['auto', 'auto-reverse', 'vertical', 'horizontal'] as const);
 
-/**
- * 默认方向：**自动（反向）**（用户定）。
- *
- * 与上游不同（上游默认「自动」）：我们这边那个独立开关默认就是「开」，迁移过来等价于自动（反向）。
- * 改这一行等于改所有新用户的默认观感，别顺手改。
- */
-export const DEFAULT_LIBRARY_WALL_SEAM_DIRECTION: LibraryWallSeamDirection = 'auto-reverse';
+export const DEFAULT_LIBRARY_WALL_SEAM_DIRECTION: LibraryWallSeamDirection = 'auto';
 
 export const isLibraryWallSeamDirection = (value: unknown): value is LibraryWallSeamDirection => (
     value === 'auto' || value === 'auto-reverse' || value === 'vertical' || value === 'horizontal'
 );
 
-/** 存储或导入的取值：认识的原样返回，其余回默认（自动（反向））。 */
+/** 存储或导入的取值：认识的原样返回，其余回默认（自动）。 */
 export const normalizeLibraryWallSeamDirection = (value: unknown): LibraryWallSeamDirection => (
     isLibraryWallSeamDirection(value) ? value : DEFAULT_LIBRARY_WALL_SEAM_DIRECTION
 );
@@ -35,10 +29,7 @@ export const LIBRARY_WALL_SEAM_DIRECTION_TEXT: Readonly<Record<LibraryWallSeamDi
     horizontal: { label: 'options.bravaisSeamDirectionHorizontal', description: 'options.bravaisSeamDirectionHorizontalDesc' },
 });
 
-/** 「竖着」的阈值：高 ≥ 宽 × 1.1（宽高比 ≤ 10 / 11）。 */
-export const LIBRARY_WALL_PORTRAIT_RATIO = 1.1;
-
-/** 「竖着的屏幕」的媒体查询，留着给只拿得到视口、量不到墙面的地方用。 */
+/** 「竖着的屏幕」：高 ≥ 宽 × 1.1（宽高比 ≤ 10 / 11）。 */
 export const LIBRARY_WALL_PORTRAIT_QUERY = '(max-aspect-ratio: 10/11)';
 
 /** 此刻信息条该不该横着开：自动时竖着的屏幕横着开，自动（反向）时横着的屏幕横着开。 */

@@ -60,8 +60,6 @@ export const askedSongKeyRef: AskedSongKeyRef = {
 };
 
 let playsStarted = 0;
-/** 用于只读快照：读取期间新发起的用户播放优先于那份旧快照。 */
-export const playRequestsSoFar = (): number => playsStarted;
 let playsDropped = 0;
 /**
  * The plays started since the last drop that have not been abandoned, oldest first (for

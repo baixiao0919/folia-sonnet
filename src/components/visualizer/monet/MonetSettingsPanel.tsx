@@ -32,6 +32,17 @@ const portraitStylePicture = (style: MonetPortraitStyle) => (
     </span>
 );
 
+/** The spectrum at the bottom: bars, or one line. */
+const audioStylePicture = (style: MonetAudioStyle) => (
+    <svg viewBox="0 0 64 40" className="absolute inset-0 h-full w-full text-[color:var(--st-t2)]" fill="none" stroke="currentColor" strokeLinecap="round">
+        {style === 'bar' ? (
+            <path strokeWidth="3" d="M14 30V22M22 30V14M30 30V19M38 30V10M46 30V17M54 30V24" />
+        ) : (
+            <path strokeWidth="2" strokeLinejoin="round" d="M10 26L18 21L26 24L34 12L42 19L50 15L56 23" />
+        )}
+    </svg>
+);
+
 export const MonetSettingsPanel: React.FC<VisualizerSettingsPanelProps<MonetTuning>> = ({
     t,
     tuning: monetTuning = DEFAULT_MONET_TUNING,
@@ -49,7 +60,10 @@ export const MonetSettingsPanel: React.FC<VisualizerSettingsPanelProps<MonetTuni
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const [feedback, setFeedback] = useState<string | null>(null);
     const resolvedTuning = {
+        keywordColoringEnabled: monetTuning.keywordColoringEnabled ?? DEFAULT_MONET_TUNING.keywordColoringEnabled,
         showDescription: monetTuning.showDescription ?? DEFAULT_MONET_TUNING.showDescription,
+        showAudioVisualization: monetTuning.showAudioVisualization ?? DEFAULT_MONET_TUNING.showAudioVisualization,
+        audioStyle: monetTuning.audioStyle ?? DEFAULT_MONET_TUNING.audioStyle,
         fontScale: clampValue(monetTuning.fontScale ?? DEFAULT_MONET_TUNING.fontScale, 0.7, 1.5, DEFAULT_MONET_TUNING.fontScale),
         portraitSource: monetTuning.portraitSource ?? DEFAULT_MONET_TUNING.portraitSource,
         portraitStyle: monetTuning.portraitStyle ?? DEFAULT_MONET_TUNING.portraitStyle ?? 'rectangular',
@@ -86,6 +100,11 @@ export const MonetSettingsPanel: React.FC<VisualizerSettingsPanelProps<MonetTuni
                     onChange={(value) => onMonetTuningChange?.({ fontScale: value })}
                     onDragStart={onSliderPointerDown}
                     onDragEnd={onSliderCommit}
+                />
+                <ToggleRow
+                    label={t('options.monetKeywordColoring')}
+                    checked={resolvedTuning.keywordColoringEnabled}
+                    onChange={(value) => onMonetTuningChange?.({ keywordColoringEnabled: value })}
                 />
                 <ToggleRow
                     label={t('options.monetShowDescription')}
@@ -127,7 +146,7 @@ export const MonetSettingsPanel: React.FC<VisualizerSettingsPanelProps<MonetTuni
                     >
                         {t('options.monetClearPortrait')}
                     </Button>
-                    <TextField
+                    <input
                         ref={fileInputRef}
                         type="file"
                         accept=".png,.jpg,.jpeg,.gif,.webp,.svg,image/*"

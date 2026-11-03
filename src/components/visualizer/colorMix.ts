@@ -1,4 +1,4 @@
-import { rememberBounded } from '../../utils/visualizer/textMeasureCache';
+import { rememberBounded } from './textMeasureCache';
 
 // src/components/visualizer/colorMix.ts
 // Shared color helpers for visualizer renderers.
@@ -67,8 +67,7 @@ const parseColor = (color: string): { normalized: string; parsed: ParsedColor } 
     const normalized = typeof color === 'string' ? color.trim() : '';
     let parsed = parsedColors.get(normalized);
     if (parsed === undefined) {
-        // 我们的 rememberBounded 在极端情况下会回 undefined（上游的是总量写法），这里补一次重算。
-        parsed = rememberBounded(parsedColors, normalized, readColor(normalized), PARSED_COLOR_LIMIT) ?? readColor(normalized);
+        parsed = rememberBounded(parsedColors, normalized, readColor(normalized), PARSED_COLOR_LIMIT);
     }
     return { normalized, parsed };
 };

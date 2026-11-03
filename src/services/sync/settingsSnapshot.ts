@@ -1,4 +1,5 @@
 import { useVisualizerSettingsStore, type VisualizerSettingsState } from '../../stores/useVisualizerSettingsStore';
+import { toStoredSmartBeat } from '../../stores/visualizerSettingsPersistence';
 import { useTypographySettingsStore, type TypographySettingsState } from '../../stores/useTypographySettingsStore';
 import { useLyricSettingsStore, type LyricSettingsState } from '../../stores/useLyricSettingsStore';
 import { useHomeLayoutSettingsStore, type HomeLayoutSettingsState } from '../../stores/useHomeLayoutSettingsStore';
@@ -6,7 +7,7 @@ import { usePlayerChromeSettingsStore, type PlayerChromeSettingsState } from '..
 import { useThemeSettingsStore, type ThemeSettingsState } from '../../stores/useThemeSettingsStore';
 import type { SyncedSettingsRecord, SyncedVisualSettings } from './syncTypes';
 import { SYNC_SCHEMA_VERSION } from './syncTypes';
-import { applyVisualizerTuningsToSettings, collectVisualizerTunings } from '../../utils/visualizer/tunings';
+import { applyVisualizerTuningsToSettings, collectVisualizerTunings } from '../../components/visualizer/tuningRegistry';
 
 // src/services/sync/settingsSnapshot.ts
 // Maps the settings stores to the syncable visual settings JSON document.
@@ -70,7 +71,8 @@ export const buildSyncedVisualSettings = (state: SyncableSettingsState): SyncedV
     monetTuning: state.monetTuning,
     pendoloTuning: state.pendoloTuning,
     sonnetTuning: state.sonnetTuning,
-    smartBeat: state.smartBeat,
+    // With the one switch an older build reads (toStoredSmartBeat).
+    smartBeat: toStoredSmartBeat(state.smartBeat),
     temperaTuning: state.temperaTuning,
     lumiereTuning: state.lumiereTuning,
     urlBackgroundList: state.urlBackgroundList,

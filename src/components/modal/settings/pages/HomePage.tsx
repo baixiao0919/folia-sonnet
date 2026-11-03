@@ -1,5 +1,5 @@
 import React from 'react';
-import { BarChart3, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import {
@@ -15,7 +15,6 @@ import { omni } from '../../../../services/onlineMusic/omni';
 import { useGridViewSettingsStore } from '../../../../stores/useGridViewSettingsStore';
 import { useHomeLayoutSettingsStore } from '../../../../stores/useHomeLayoutSettingsStore';
 import { useOnlineProviderAccountStore } from '../../../../stores/useOnlineProviderAccountStore';
-import { openListeningArchive } from '../../../app/listeningArchive/openListeningArchive';
 import { Button, Chips, Group, PictureChoice, Reveal, Row, Segmented, Slider, Toggle, option, type SettingsGroupDef, type SettingsOptionDef } from '../kit';
 import { BRAVAIS_WALL_OPTIONS, BravaisWallGroup } from './BravaisWallGroup';
 import { GridCardsPreview, HomeCardStylePicture } from './pictures';
@@ -64,7 +63,6 @@ const HomePage: React.FC = () => {
         tabAlbums: state.showHomeTabAlbums,
         tabLocal: state.showHomeTabLocal,
         tabExplore: state.showHomeTabExplore,
-        tabCloud: state.showHomeTabCloud,
         cardStyle: state.grid3dCardStyle,
         rememberPosition: state.rememberHomeCardPosition,
         setTabPlaylist: state.handleToggleHomeTabPlaylist,
@@ -72,7 +70,6 @@ const HomePage: React.FC = () => {
         setTabAlbums: state.handleToggleHomeTabAlbums,
         setTabLocal: state.handleToggleHomeTabLocal,
         setTabExplore: state.handleToggleHomeTabExplore,
-        setTabCloud: state.handleToggleHomeTabCloud,
         setCardStyle: state.handleSetGrid3dCardStyle,
         setRememberPosition: state.handleToggleRememberHomeCardPosition,
     })));
@@ -116,7 +113,6 @@ const HomePage: React.FC = () => {
                             { id: O.tabExplore.id, label: t('home.explore'), checked: home.tabExplore, onChange: home.setTabExplore, disabled: !hasExplore },
                             { id: O.tabAlbums.id, label: t('home.albums'), checked: home.tabAlbums, onChange: home.setTabAlbums },
                             { id: O.tabLocal.id, label: t('localMusic.folder'), checked: home.tabLocal, onChange: home.setTabLocal },
-                            { id: O.tabCloud.id, label: t('home.aiTheme'), checked: home.tabCloud, onChange: home.setTabCloud },
                         ]}
                     />
                 </Row>

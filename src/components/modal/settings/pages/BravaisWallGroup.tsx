@@ -123,7 +123,6 @@ export const BravaisWallGroup: React.FC = () => {
                     onChange={wall.setSeamDirection}
                 />
             </Row>
-            {/* 反向不再是单独的开关：它是方向列表里的一档（自动（反向）），列表自己会列出来。 */}
             <Row option={O.seamClear} note={t('options.bravaisSeamClearDesc')}>
                 <Toggle checked={wall.seamClear} onChange={wall.setSeamClear} />
             </Row>

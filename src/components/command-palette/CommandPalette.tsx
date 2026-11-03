@@ -85,29 +85,6 @@ const pickNextPlaceholderIndex = (currentIndex: number) => {
     return (currentIndex + offset) % IDLE_PLACEHOLDER_COUNT;
 };
 
-/*
- * Touch-primary devices (phones and tablets: no hover, coarse pointer) raise the soft keyboard the
- * moment an input is focused. Every programmatic focus in this file would flash that keyboard
- * without the user asking to type — on open, after a command ran, after picking from the
- * all-commands list — so on those devices the query input is only focused by tapping it. Devices
- * with a fine pointer (desktop, touch-screen laptops) keep the autofocus that serves keyboard use.
- */
-const shouldAutoFocusQueryInput = () => (
-    typeof window === 'undefined'
-    || !window.matchMedia('(hover: none) and (pointer: coarse)').matches
-);
-
-/*
- * The proactive blur after the entrance animation exists for one iOS Safari quirk (comment at the
- * call site): an input focused inside a fixed + backdrop-blur panel blocks sibling scrolling. No
- * other platform has it, and blurring there would only close a keyboard the user just opened by
- * tapping the input. iPadOS 13+ reports itself as macOS; maxTouchPoints tells it apart.
- */
-const isIos = () => (
-    /iPad|iPhone|iPod/.test(navigator.userAgent)
-    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-);
-
 const CommandPalette: React.FC<CommandPaletteProps> = ({
     activeIndex,
     activePreview,
@@ -136,21 +113,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
     useGlass();
     const { t, i18n } = useTranslation();
     const inputRef = useRef<HTMLInputElement | null>(null);
-    // One gate for every programmatic focus of the query input; see shouldAutoFocusQueryInput.
-    const focusQueryInput = useCallback(() => {
-        if (!shouldAutoFocusQueryInput()) {
-            return;
-        }
-        inputRef.current?.focus();
-    }, []);
     // Puts the focus back into the query input a frame later: a click has put it on what was
     // clicked. While a command runs the input is disabled and cannot take the focus, so a request
     // that finds it disabled is kept, and done in the commit that enables the input again.
     const focusAskedRef = useRef(false);
     const refocusInput = useCallback(() => {
-        if (!shouldAutoFocusQueryInput()) {
-            return;
-        }
         focusAskedRef.current = true;
         window.requestAnimationFrame(() => {
             const input = inputRef.current;
@@ -241,7 +208,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
     // composition handling, the surface's own inputProps and the executing lock have to be
     // identical, so they are written once.
     const renderQueryInput = (className: string) => (
-        <TextField
+        <input
             ref={inputRef}
             type="text"
             {...(surface?.inputProps?.(surfaceArgs) ?? {})}
@@ -299,18 +266,15 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
             return;
         }
 
-        // Touch-primary devices open the palette without the keyboard; see shouldAutoFocusQueryInput.
-        if (!shouldAutoFocusQueryInput()) {
-            return;
-        }
-
-        const frame = window.requestAnimationFrame(focusQueryInput);
+        const frame = window.requestAnimationFrame(() => {
+            inputRef.current?.focus();
+        });
 
         return () => window.cancelAnimationFrame(frame);
         // Switching between the two frames remounts the input, so the focus has to be taken again:
         // picking `filter-view` out of the overlay's list leaves the caret nowhere otherwise. Every
         // other surface keeps the overlay's own input, so this is the one crossing that needs it.
-    }, [focusQueryInput, isOpen, isInlineFrame]);
+    }, [isOpen, isInlineFrame]);
 
     // The grid that handed over its keyboard still has to know the box is up — it used to read its
     // own `showSearchPanel` to keep Enter from opening a card while the listener was typing.
@@ -430,7 +394,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
                 renderInput={renderQueryInput}
                 onQueryCommit={onQueryCommit}
                 onClose={onClose}
-                focusInput={focusQueryInput}
+                focusInput={() => inputRef.current?.focus()}
                 suggestions={syntaxSuggestions}
                 syntaxIndex={syntaxIndex}
                 onAcceptSuggestion={acceptSyntaxSuggestion}
@@ -473,9 +437,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
                             // iOS Safari blocks overflow scrolling in sibling containers
                             // when an input is focused inside a fixed + backdrop-blur panel.
                             // Blur proactively so the first touch-scroll works immediately.
-                            // iOS-only: no other platform has this quirk, and blurring there
-                            // would just close a keyboard the user opened by tapping the input.
-                            if (isIos()) {
+                            if ('ontouchstart' in window) {
                                 inputRef.current?.blur();
                             }
                         }}
@@ -511,7 +473,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
                                     style={{ borderColor: isDaylight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.15)' }}
                                 >
                                     <span>{getCommandTitle(activeCommand, t)}</span>
-                                    <Button
+                                    <button
+                                        type="button"
                                         disabled={isExecuting}
                                         onClick={() => {
                                             onActiveCommandChange(null);
@@ -522,25 +485,27 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
                                         aria-label={t('ui.clearActiveCommand')}
                                     >
                                         <X size={12} />
-                                    </Button>
+                                    </button>
                                 </div>
                             )}
                             {renderQueryInput('min-w-0 flex-1 bg-transparent py-2 text-sm outline-none placeholder:opacity-45 disabled:opacity-50')}
-                            <Button
+                            <button
+                                type="button"
                                 onClick={() => setIsShowingAllCommands(current => !current)}
                                 className={`rounded-full p-2 transition-colors ${isShowingAllCommands ? itemActiveBg : (isDaylight ? 'hover:bg-black/10' : 'hover:bg-white/10')}`}
                                 aria-label={t('commandPalette.showAllCommands') || 'Show all commands'}
-                                tip={t('commandPalette.showAllCommands') || 'Show all commands'}
+                                title={t('commandPalette.showAllCommands') || 'Show all commands'}
                             >
                                 <CircleHelp size={17} />
-                            </Button>
-                            <Button
+                            </button>
+                            <button
+                                type="button"
                                 onClick={onClose}
                                 className={`rounded-full p-2 transition-colors ${isDaylight ? 'hover:bg-black/10' : 'hover:bg-white/10'}`}
                                 aria-label={t('commandPalette.close') || 'Close command palette'}
                             >
                                 <X size={16} />
-                            </Button>
+                            </button>
                         </div>
 
                         {/* Removed activePreview top panel, it is now shown inline in the list items description */}
@@ -599,9 +564,10 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
                                     const commandHint = primaryTermOf(match.command);
                                     const Icon = match.command.icon ?? Command;
                                     return (
-                                        <Button
+                                        <button
                                             key={match.command.id}
                                             ref={isActive ? activeMatchRowRef : undefined}
+                                            type="button"
                                             disabled={isExecuting}
                                             onMouseEnter={() => {
                                                 if (!isExecuting) {
@@ -648,7 +614,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
                                                     {t('commandPalette.run') || 'Run'}
                                                 </div>
                                             )}
-                                        </Button>
+                                        </button>
                                     );
                                 })
                             )}

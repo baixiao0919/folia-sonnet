@@ -39,13 +39,6 @@ interface DesktopGrid3DSurfaceProps {
     onSelect: (item: Grid3DSliderItem, index: number) => void;
     tabs?: DesktopGrid3DAction[];
     actions?: DesktopGrid3DAction[];
-    /**
-     * 给了就在动作排最前面摆一颗「目录」：与页签里那颗地图胶囊同一个开关（打开 GridMap）。
-     *
-     * 网格的目录视图原先只能靠页签胶囊那颗小地图图标进 —— 墙上同一件事是「⋯」菜单里写明
-     * 「目录」的一项，于是换到网格就像少了一个入口。文案由调用方给（本地页签是「目录」）。
-     */
-    directoryButtonLabel?: string;
     isInteractive?: boolean;
     isLoading?: boolean;
     emptyMessage?: string;
@@ -73,7 +66,6 @@ export const DesktopGrid3DSurface: React.FC<DesktopGrid3DSurfaceProps> = ({
     onSelect,
     tabs = [],
     actions = [],
-    directoryButtonLabel,
     isInteractive = true,
     isLoading = false,
     emptyMessage,
@@ -141,16 +133,6 @@ export const DesktopGrid3DSurface: React.FC<DesktopGrid3DSurfaceProps> = ({
         if (closedKey) useLibraryDirectorySessionStore.getState().closeDirectory(closedKey);
     }, []);
     const chrome = gridChromeClassesFor(isDaylight);
-    // 「目录」：动作排最前面那颗，按下就是打开 / 收起 GridMap（与页签里的地图胶囊同一个开关）。
-    const directoryAction: DesktopGrid3DAction | null = directoryButtonLabel && !isLoading ? {
-        id: 'directory',
-        label: directoryButtonLabel,
-        icon: <MapIcon size={13} />,
-        active: showGridMap,
-        title: directoryButtonLabel,
-        onClick: () => (showGridMap ? closeGridMap() : openGridMap()),
-    } : null;
-    const rowActions = directoryAction ? [directoryAction, ...actions] : actions;
     const { hiddenIds: hiddenPlaylistIds, toggleHidden: togglePlaylistHidden } = useHiddenCollections(playlistVisibilityScope);
     const { focusedIndex, onFocusedIndexChange } = useHomeCardPosition(
         focusMemoryScope, items, legacyFocusedIndex, onLegacyFocusedIndexChange, isLoading,
@@ -185,8 +167,7 @@ export const DesktopGrid3DSurface: React.FC<DesktopGrid3DSurfaceProps> = ({
                 types) sits right under the header's view capsule, the library actions on the right
                 under the search box. The row itself lets clicks through to the grid; only the
                 controls take them. */}
-            {/* z-40：这一排按钮要一直压在卡片之上，否则窄屏时会被 3D 卡片的层叠上下文盖住（#180）。 */}
-            <div className="pointer-events-none absolute inset-x-0 top-2 z-40">
+            <div className="pointer-events-none absolute inset-x-0 top-2 z-10">
                 <div className="mx-auto grid w-full max-w-7xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 md:px-8">
                     <div />
                     <div className="flex justify-center">

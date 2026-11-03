@@ -44,7 +44,6 @@
 | `net.fetch` | `folium.net.fetch` |
 | `net.embed` | `folium.ui.embed` |
 | `stageLayers` | `folium.registries.stageLayers` |
-| `ai.request` | `folium.ai.isConfigured`、`folium.ai.describe`、`folium.ai.complete` |
 | `platform.netease.read` | `folium.experimental.platform.raw.request` |
 | `platform.netease.write` | `folium.experimental.platform.raw.request.write` |
 
@@ -148,7 +147,6 @@ The object a client entry's `activate(folium)` receives.
 | `readonly playback` | `FoliumPlaybackService` | Playback state and control. |
 | `readonly ui` | `FoliumUiService` | Toasts, panels, files, embeds, icons. |
 | `readonly net` | `FoliumNetService` | Network access through the host. |
-| `readonly ai` | `FoliumAiService` | Folium 1.5: the host's AI connection, as configured in its own AI settings. |
 | `readonly storage` | `FoliumStorage` | This mod's data file. |
 | `readonly secrets` | `FoliumSecretAccess` | Folium 1.7: the values of this mod's `secret` settings fields. |
 | `readonly rpc` | `FoliumRpc` | Calls into this mod's main entry. |
@@ -1007,53 +1005,6 @@ interface FoliumLyricsService extends FoliumLyricsHelpers
 
 相关：[FoliumFetchInit](#foliumfetchinit) · [FoliumFetchResponse](#foliumfetchresponse)
 
-### FoliumAiTarget
-
-Folium 1.5: which AI the host will ask, as configured in the host's own AI settings.
-
-| 成员 | 类型 | 说明 |
-| --- | --- | --- |
-| `provider` | `'gemini' \| 'deepseek' \| 'mimo' \| 'qwen' \| 'tencentcloud' \| 'openai' \| 'anthropic' \| 'kimi' \| 'glm' \| 'custom'` | The provider selected in Settings → AI. `deepseek` is an OpenAI-compatible endpoint with a fixed address, exposed as its own provider because the form then only has to ask for a key — the request still goes out through the OpenAI transport. |
-| `model` | `string` | The model actually sent; where the settings leave it blank the host fills in its own default. |
-
-### FoliumAiCompletionRequest
-
-Folium 1.5: one prompt for `folium.ai.complete`. Names deliberately say `system` / `prompt`, not `messages`.
-
-| 成员 | 类型 | 说明 |
-| --- | --- | --- |
-| `system` | `string` | The standing rules the answer must follow. |
-| `prompt` | `string` | Everything specific to this call. |
-| `temperature?` | `number` | 0–2; left out means the temperature saved in the host's AI settings. |
-| `maxTokens?` | `number` | Output token ceiling. Best effort: the key differs per provider and some ignore it. |
-| `json?` | `boolean` | Ask for JSON output where the provider supports it. Default `true`. |
-| `signal?` | `AbortSignal` | Aborts the request; a mod should wire this to its own deactivate. |
-
-### FoliumAiCompletionResult
-
-Folium 1.5: what `folium.ai.complete` answered.
-
-| 成员 | 类型 | 说明 |
-| --- | --- | --- |
-| `text` | `string` | The answer, unparsed — validating it against the mod's own contract is the caller's job. |
-| `target` | `FoliumAiTarget` | The provider and model that answered. |
-
-相关：[FoliumAiTarget](#foliumaitarget)
-
-### FoliumAiService
-
-`folium.ai` (Folium 1.5): the AI service the user configured in the host's own
-AI settings. The mod never holds a credential — it is read per request, used
-inside the call, and never returned, thrown or logged.
-
-| 成员 | 类型 | 说明 |
-| --- | --- | --- |
-| `isConfigured()` | `(): boolean` | Whether the selected provider has a credential in the host's settings. Never throws. |
-| `describe()` | `(): FoliumAiTarget \| null` | What the next completion would use; null when nothing is configured. Never throws. |
-| `complete()` | `(request: FoliumAiCompletionRequest): Promise<FoliumAiCompletionResult>` | Runs one prompt; needs the `ai.request` permission. |
-
-相关：[FoliumAiTarget](#foliumaitarget) · [FoliumAiCompletionRequest](#foliumaicompletionrequest) · [FoliumAiCompletionResult](#foliumaicompletionresult)
-
 ### FoliumAccountState
 
 Folium 1.7: who is signed in to one online source, as `folium.account.getState()` and the
@@ -1835,10 +1786,10 @@ type FoliumPlaybackState = 'playing' | 'paused' | 'stopped'
 
 ### FoliumLoopMode
 
-The repeat mode. `all` repeats the queue, `one` the current song, `shuffle` plays the queue shuffled.
+The repeat mode. `all` repeats the queue, `one` the current song.
 
 ```ts
-type FoliumLoopMode = 'off' | 'all' | 'one' | 'shuffle'
+type FoliumLoopMode = 'off' | 'all' | 'one'
 ```
 
 ### FoliumQueueItem

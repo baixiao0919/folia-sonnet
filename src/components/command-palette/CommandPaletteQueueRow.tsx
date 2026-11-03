@@ -5,7 +5,6 @@ import { getSongTag, isSongUnavailable } from '../../services/onlineMusic/songAv
 import { getSongArtistLabel } from '../../services/onlineMusic/songMetadata';
 import { getPlaybackSongKey } from '../../utils/appPlaybackGuards';
 import type { CommandPaletteMatch } from './types';
-import { Button } from '../ui';
 
 // src/components/command-palette/CommandPaletteQueueRow.tsx
 // Renders one searchable queue entry and its three hover editing actions.
@@ -69,7 +68,8 @@ const CommandPaletteQueueRow = ({
                     isSelected ? selectedClass : hoverClass
                 } ${unavailable ? 'opacity-55' : ''}`}
             >
-                <Button
+                <button
+                    type="button"
                     disabled={isExecuting}
                     data-active={isPlaying}
                     onClick={() => {
@@ -109,7 +109,7 @@ const CommandPaletteQueueRow = ({
                             </span>
                         )}
                     </span>
-                </Button>
+                </button>
                 <span
                     className={`absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5
                         pointer-events-none opacity-0
@@ -121,9 +121,10 @@ const CommandPaletteQueueRow = ({
                         { label: labels.moveToEnd, icon: ListEnd, action: onMoveSongToEnd },
                         { label: labels.remove, icon: Trash2, action: onRemoveSong },
                     ].map(({ label, icon: Icon, action }) => (
-                        <Button
+                        <button
                             key={label}
-                            tip={label}
+                            type="button"
+                            title={label}
                             aria-label={label}
                             onClick={(event) => {
                                 event.stopPropagation();
@@ -137,7 +138,7 @@ const CommandPaletteQueueRow = ({
                             }`}
                         >
                             <Icon size={14} />
-                        </Button>
+                        </button>
                     ))}
                 </span>
             </div>

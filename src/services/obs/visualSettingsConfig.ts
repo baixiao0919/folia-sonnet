@@ -1,7 +1,8 @@
-import { collectVisualizerTunings } from '../../utils/visualizer/tunings';
+import { collectVisualizerTunings } from '../../components/visualizer/tuningRegistry';
 import { readStoredThemeAutoGenerateEnabled, readStoredThemeAutoSwitchEnabled, readStoredThemeGenerationSource } from '../themePreferences';
 import type { CappellaAvatarImage, CappellaEmojiImage, CappellaTuning, MonetBackgroundImage, MonetBackgroundTuning, MonetPortraitImage, MonetTuning, NomandBackgroundTuning } from '../../types';
 import { useVisualizerSettingsStore } from '../../stores/useVisualizerSettingsStore';
+import { toStoredSmartBeat } from '../../stores/visualizerSettingsPersistence';
 import { useVisualizerAssetStore } from '../../stores/useVisualizerAssetStore';
 import { useTypographySettingsStore } from '../../stores/useTypographySettingsStore';
 import { useThemeSettingsStore } from '../../stores/useThemeSettingsStore';
@@ -92,7 +93,8 @@ export function buildVisualSettingsConfig(): Record<string, unknown> {
     monetTuning: storeVisualizer.monetTuning,
     pendoloTuning: storeVisualizer.pendoloTuning,
     sonnetTuning: storeVisualizer.sonnetTuning,
-    smartBeat: storeVisualizer.smartBeat,
+    // With the one switch an older build reads (toStoredSmartBeat).
+    smartBeat: toStoredSmartBeat(storeVisualizer.smartBeat),
     temperaTuning: storeVisualizer.temperaTuning,
     lumiereTuning: storeVisualizer.lumiereTuning,
     urlBackgroundList: storeVisualizer.urlBackgroundList,

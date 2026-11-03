@@ -3,8 +3,6 @@ import type React from 'react';
 import type { MotionValue } from 'framer-motion';
 import { omni } from '../../../../services/onlineMusic/omni';
 import { playbackFade } from '../../../../services/playbackFade';
-import { nativePlaybackEngine } from '../../../../services/playbackEngine/nativePlaybackEngine';
-import { shouldPauseNativePlayback } from './nativeTogglePause';
 import { PlayerState } from '../../../../types';
 import type { ReplayGainMode, SongResult, StageLoopMode, StatusMessage } from '../../../../types';
 import { getReplayGainModeLabel } from '../../../../utils/appPlaybackHelpers';
@@ -59,14 +57,6 @@ type UsePlaybackInteractionBridgeParams = {
      */
     isTransitionAudible?: () => boolean;
     /**
-     * 这一首是不是由原生 ExoPlayer 在播（P1）。
-     *
-     * 必须有：下面那个「元素在不在播」的判据对原生不成立 —— 元素是空的（src=''），
-     * `paused` 恒为 true，于是按播放键永远走「开始播放」分支，**应用内就再也按不停**。
-     * 传 ref 而不是布尔值：这些回调是 useCallback，跟着开关换身份会把整批订阅重建。
-     */
-    nativeTakesRef?: React.MutableRefObject<boolean>;
-    /**
      * Takes a seek that lands during a blend, returning true when it did.
      *
      * Mid-blend `audioRef` is the incoming deck: writing to it moves a track the listener cannot
@@ -97,7 +87,6 @@ export function usePlaybackInteractionBridge({
     isNowPlayingStageActive,
     audioRef,
     isTransitionAudible,
-    nativeTakesRef,
     seekDuringTransition,
     stageLyricsClockRef,
     cyclePlayerChromeVisibilityMode,
@@ -183,22 +172,6 @@ export function usePlaybackInteractionBridge({
             return;
         }
 
-        // 原生播放（P1）：下面的 `audioRef.current.paused` 这时候恒为 true（元素是空的），
-        // 照它判就变成「按播放键只会一直开始播放，永远按不停」。
-        //
-        // 也不能只看 `playerState`：切歌后它有一小段是 IDLE / 还在追旧状态，而原生那边
-        // 已经接受播放意图、开始出声了（`nativePlaybackEngine.play()` 先记 playing，事件
-        // 晚一点才回）。那一小段里按暂停会被当成「开始播放」，也就是切歌后的前几秒双击
-        // 暂停没反应。两个都看：任一说在播，这一下就是暂停。
-        if (nativeTakesRef?.current) {
-            if (shouldPauseNativePlayback(playerState, nativePlaybackEngine.isPlaying())) {
-                pausePlayback();
-            } else {
-                startPlaybackFromInteraction();
-            }
-            return;
-        }
-
         if (audioRef.current) {
             if (!audioRef.current.paused && !audioRef.current.ended) {
                 pausePlayback();
@@ -206,7 +179,7 @@ export function usePlaybackInteractionBridge({
                 startPlaybackFromInteraction();
             }
         }
-    }, [activePlaybackContext, audioRef, audioSrc, isNowPlayingStageActive, isTransitionAudible, nativeTakesRef, pausePlayback, playerState, startPlaybackFromInteraction, stageActiveEntryKind]);
+    }, [activePlaybackContext, audioRef, audioSrc, isNowPlayingStageActive, isTransitionAudible, pausePlayback, playerState, startPlaybackFromInteraction, stageActiveEntryKind]);
 
     const toggleLoop = useCallback((event?: React.MouseEvent) => {
         event?.stopPropagation();

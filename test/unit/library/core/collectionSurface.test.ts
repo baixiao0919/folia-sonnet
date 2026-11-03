@@ -11,7 +11,6 @@ import { LIBRARY_ACTION_IDS } from '@/library/core/suite/librarySuites';
 import { EMPTY_COLLECTION_MUTATION_SNAPSHOT } from '@/library/core/collection/mutations/collectionMutationCapabilities';
 import type { LibraryDeclaredActions } from '@/library/core/suite/suite.contract';
 import { resolveCollectionSyncCounts } from '@/library/core/collection/collectionProgress';
-import { SONG_SORT_PRESETS } from '@/library/core/collection/songSortOptions';
 
 // test/unit/library/core/collectionSurface.test.ts
 // 只有核心动作的 renderer（没有信息面板、侧栏、编辑模式）注册到命令面板时，
@@ -45,7 +44,7 @@ describe('core collection surface', () => {
 
     it('adds the local sort actions when the collection supports them', () => {
         expect(buildGridSurfaceState(core({ supportsLocalTrackSorting: true, canReloadOnlineCollection: false })).availableActions)
-            .toEqual(['play-filtered', 'enqueue-filtered', 'sort-file-name', 'sort-file-modified', 'sort-album-track', 'sort-toggle-direction']);
+            .toEqual(['play-filtered', 'enqueue-filtered', 'sort-file-name', 'sort-modified-date', 'sort-album-track', 'sort-toggle-direction']);
     });
 
     it('refuses renderer-only actions and dispatches core ones', () => {
@@ -59,8 +58,7 @@ describe('core collection surface', () => {
 
 /** 网格那样什么分支都打开的参数：每个命令都可用，好看出声明过滤掉了哪些。 */
 const everything = (declaredActions?: LibraryDeclaredActions): GridSurfaceParams => ({
-    // 排得了所有排序项：本地那三项之外，按加入时间 / 标题 / 歌手 / 喜欢 / 播放次数的命令也都在。
-    ...core({ supportsLocalTrackSorting: true, availableSortPresets: SONG_SORT_PRESETS }),
+    ...core({ supportsLocalTrackSorting: true }),
     hasInfoPanel: true,
     hasTrackList: true,
     canResyncFolder: true,
@@ -95,19 +93,9 @@ describe('suite-declared actions on the command surface', () => {
             'play-filtered',
             'enqueue-filtered',
             'sort-file-name',
-            'sort-file-modified',
+            'sort-modified-date',
             'sort-album-track',
             'sort-toggle-direction',
-            // 预设那几项（菜单与命令面板同一个来源）。
-            'sort-newest',
-            'sort-oldest',
-            'sort-title',
-            'sort-artist',
-            'sort-liked-desc',
-            'sort-liked-asc',
-            'sort-play-count-desc',
-            'sort-play-count-asc',
-            'sort-default',
             'reload-online-collection',
         ]);
         // 声明了但 core 此刻不允许的，照样不出现。

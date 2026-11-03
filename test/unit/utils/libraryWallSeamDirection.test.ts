@@ -39,12 +39,6 @@ describe('libraryWallSeamDirection', () => {
         expect(resolveLibraryWallSeamHorizontal('vertical', true)).toBe(false);
     });
 
-    // 「自动（反向）」= 同一个判断、结果反过来：竖着拿的手机用竖缝，横着的桌面窗口 / 手机横屏用横条。
-    it('reverses the automatic branch for auto-reverse', () => {
-        expect(resolveLibraryWallSeamHorizontal('auto-reverse', true)).toBe(false);
-        expect(resolveLibraryWallSeamHorizontal('auto-reverse', false)).toBe(true);
-    });
-
     it('counts only clearly tall viewports as portrait, so near-square windows do not flip back and forth', () => {
         expect(matchesPortraitQuery(390, 844)).toBe(true);
         expect(matchesPortraitQuery(768, 1024)).toBe(true);

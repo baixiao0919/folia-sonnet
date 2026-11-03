@@ -5,14 +5,6 @@ import { useTranslation } from 'react-i18next';
 import type { Theme } from '../../../types';
 import { useTransitionBorderCue } from './now-playing-toast/useTransitionBorderCue';
 import { usePlayerBottomBarBottomPx } from '../../../hooks/usePlayerBottomBarBottomPx';
-import { useAppViewStore } from '../../../stores/useAppViewStore';
-import { useAppChromeStore } from '../../../stores/useAppChromeStore';
-import { usePlayerChromeSettingsStore } from '../../../stores/usePlayerChromeSettingsStore';
-import { isNowPlayingToastHiddenWithChrome } from './now-playing-toast/nowPlayingToastVisibility';
-import {
-    PLAYER_BOTTOM_BAR_SUBTITLE_BLOCK_PX,
-    PLAYER_BOTTOM_BAR_TOAST_BOTTOM_PX,
-} from '../../../utils/playerBottomBarLayout';
 import { usePlayerOverlayObstacle } from '../../../hooks/usePlayerOverlayLayout';
 import { useNowPlayingCardLayoutStore } from './now-playing-toast/nowPlayingCardLayoutStore';
 import { useNowPlayingCardPosition } from './now-playing-toast/useNowPlayingCardPosition';
@@ -25,8 +17,6 @@ useGlass;
 // 位置可在设置或命令面板里拖动调整（见 now-playing-toast/useNowPlayingCardPosition.ts）。
 // 歌名上方带 "正在播放 / 接下来播放" 标签。
 // 显示模式：auto=显示 timeoutSec 秒后淡出（换歌重新计时），always=常驻，never=不渲染。
-// 播放页把界面收起来时它一起收（点空白那一族手势），并且恢复控件那一下不会把它带回来 ——
-// 见下面 visible 之后那一组状态。
 // isNextUp=自动切歌预览（automix 混合或普通曲目结束倒计时）：强制显示下一首并挂
 // "接下来播放" 标签，切完后翻回 "正在播放"。
 // automix 混音期间边框上会长出一圈进度描边（见 now-playing-toast/NowPlayingToastTransitionBorder
@@ -161,12 +151,10 @@ const NowPlayingToast: React.FC<NowPlayingToastProps> = ({
 
     const position = useNowPlayingCardPosition(frameRef, cardSize, bottomBarBottomPx, visible, invalidateLayout);
 
-    const position = useNowPlayingCardPosition(frameRef, cardSize, bottomBarBottomPx, visible, invalidateLayout);
-
     return (
         <>
         <AnimatePresence>
-            {visible && !isHiddenWithChrome && (
+            {visible && (
                 <motion.div
                     ref={setFrameRef}
                     onUpdate={invalidateLayout}

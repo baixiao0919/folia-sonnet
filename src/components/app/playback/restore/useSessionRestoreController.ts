@@ -27,15 +27,10 @@ type UseSessionRestoreControllerParams = {
     blobUrlRef: MutableRefObject<string | null>;
     currentOnlineAudioUrlFetchedAtRef: MutableRefObject<number | null>;
     setLyrics: (nextLyrics: LyricData | null) => void;
-    /*
-     * 结果类型只写 `unknown`，不抄那串字面量并集：这里只是把回调往下一路传，并不按返回值
-     * 分支。抄一遍的话，`restoreCachedThemeForSong` 每多一种结果（例如「本机改过」与「云端缓
-     * 存」这两种）都会让这里编译不过，而它其实根本不关心是哪种。
-     */
     restoreCachedThemeForSong: (songId: ThemeCacheSongKey | SongResult, options?: {
         allowLastUsedFallback?: boolean;
         preserveCurrentOnMiss?: boolean;
-    }) => Promise<unknown>;
+    }) => Promise<'legacy' | 'dual' | 'fallback-dual' | 'restored' | 'none'>;
     persistLastPlaybackCache: (song: SongResult | null, queue: SongResult[]) => Promise<void>;
     clearPersistedStagePlaybackCache: () => Promise<void>;
     loadLocalSongs: () => Promise<void>;
@@ -46,11 +41,6 @@ type UseSessionRestoreControllerParams = {
      * alone so the session comes back paused; the lab switch below is the only thing that arms it.
      */
     shouldAutoPlayRef: MutableRefObject<boolean>;
-    /**
-     * 「进入应用后自动播放」下面那一项：起播的同时把页面切到歌词页。
-     * 只在这一处按开关调；不跳的时候首页照旧。
-     */
-    jumpToPlayerOnLaunch?: () => void;
 };
 
 // Restores the main playback session without pushing more boot logic into App.tsx.
@@ -66,7 +56,6 @@ export function useSessionRestoreController({
     loadLocalPlaylists,
     canRestoreSession = true,
     shouldAutoPlayRef,
-    jumpToPlayerOnLaunch,
 }: UseSessionRestoreControllerParams) {
     const audioQuality = useAudioSettingsStore(state => state.audioQuality);
 
@@ -107,13 +96,6 @@ export function useSessionRestoreController({
             // earlier window left playing in mpv itself (it takes it over, or stops it).
             let handedToSourceRestore = false;
             try {
-                // WebView 重建不等于播放器重启：先问原生，不能把磁盘里的旧歌装回去。
-                const native = await readNativeQueueState();
-                if (native?.hasSong && native.nativeMedia?.songKey === native.songKey && native.nativeMedia.url) {
-                    if (askedSongKeyRef.current === null) adoptNativePlaybackState(native);
-                    shouldAutoPlayRef.current = false;
-                    return;
-                }
                 let lastSong = await getFromCache<SongResult>('last_song');
                 let lastQueue = await getFromCache<SongResult[]>('last_queue');
 
@@ -192,11 +174,6 @@ export function useSessionRestoreController({
                     // that gives the deck its src, and it spends this flag there; setting it after
                     // would miss that run and leave the deck buffered in silence.
                     shouldAutoPlayRef.current = true;
-                    // 「同时跳转至可视化页面」：等音源落地再切会先白一下首页，而这里要的就是
-                    // 打开应用直接是那一页。两个开关一起读：下面的开关只在上面那个开着时才有页面可看。
-                    if (useAudioSettingsStore.getState().autoJumpToVisualizerOnLaunch) {
-                        jumpToPlayerOnLaunch?.();
-                    }
                 }
 
                 let outcome: RestorePlaybackSourceOutcome = 'failed';

@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Disc } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { formatGridMapFolderTitle } from '../../../../utils/gridMapFolderPath';
+import { getSizedCoverUrl } from '../../../../utils/coverUrl';
 import { useHomeLayoutSettingsStore } from '../../../../stores/useHomeLayoutSettingsStore';
 import { useReducedMotionFor } from '../../../../hooks/useReducedMotionFor';
-import { useCompactUiScale } from '../../../../hooks/useCompactUiScale';
 import { hasBlockingWindow } from '../../../../utils/keyboardTargets';
 import { CARD_TITLE_ATTR, MORPH_FRAME_ATTR } from '../transitions/gridMorphContract';
 import { LoadingRing } from '@/components/shared/LoadingRing';
@@ -305,7 +307,6 @@ export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
     const isNarrowLayout = containerSize.width > 0 && containerSize.width < 768;
     const isShortLayout = containerSize.height > 0 && containerSize.height < (hasFloatingPlayer ? 420 : 380);
     const useCompactMetrics = isNarrowLayout || isShortLayout;
-    const isCompactUi = useCompactUiScale();
     const isLargeDesktop = !useCompactMetrics
         && isDesktopWidth
         && containerSize.width >= 1440
@@ -315,37 +316,9 @@ export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
         && containerSize.width >= 2000
         && containerSize.height >= (hasFloatingPlayer ? 780 : 720);
 
-    // 放大倍数提到这里：卡片尺寸要按它反算（见下），两边必须是同一个值。
-    // 紧凑档降一档 —— 那档的内边距只有 20px，兜不住桌面档那么大的放大溢出。
-    const peakScale = isCompactUi
-        ? GRID3D_COMPACT_PEAK_SCALE
-        : (grid3dCardStyle === 'image' ? 1.25 : 1.2);
-    const compactCoverCeiling = isDesktopWidth ? 208 : 192;
-
-    /*
-     * 手机横屏（紧凑档）下纵向空间是唯一的硬约束：滚动容器按内容撑高、再把超出的部分裁掉，
-     * 所以卡片一高就被上下各切一刀 —— 滑到中间放大时切得最狠，最底那截还会伸到悬浮播放条上
-     * （播放按钮就在那儿）。
-     *
-     * 与其靠裁剪兜底，不如按容器高度反推封面尺寸：容器高 − 滚动容器的上下内边距 − 底部标题块，
-     * 再除以放大倍数，就是「放大之后刚好整个装得下」的宽度。相纸卡在这一档退化成方形
-     * （素材区的三行文字被隐藏，见 androidPhoneFit.css），所以两种样式的比例都是 1。
-     *
-     * 只在紧凑档生效：竖屏手机、桌面、平板走的还是原来那套按宽度的档位表。
-     * 量不到容器高度时（首帧）退回那一档的上限，下一帧就会纠正。
-     */
-    const compactFitCover = containerSize.height > 0
-        ? Math.floor(
-            (containerSize.height - GRID3D_COMPACT_SCROLLER_PAD_PX * 2 - GRID3D_COMPACT_CAPTION_PX)
-            / GRID3D_COMPACT_CARD_RATIO / peakScale,
-        )
-        : compactCoverCeiling;
-
-    const coverSize = isCompactUi
-        ? Math.max(GRID3D_COMPACT_MIN_COVER_PX, Math.min(compactCoverCeiling, compactFitCover))
-        : useCompactMetrics
-            ? (isDesktopWidth ? 208 : 192)
-            : (isDesktopWidth ? (isUltraDesktop ? 360 : isLargeDesktop ? 312 : 218) : 224);
+    const coverSize = useCompactMetrics
+        ? (isDesktopWidth ? 208 : 192)
+        : (isDesktopWidth ? (isUltraDesktop ? 360 : isLargeDesktop ? 312 : 218) : 224);
     const edgePadding = Math.max(0, (containerSize.width - coverSize) / 2);
 
     const safeFocusedIndex = clampFocusedIndex(focusedIndex, items.length);
@@ -391,6 +364,8 @@ export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
         const container = scrollContainerRef.current;
         if (!container) return undefined;
         const maxDist = 600;
+        const isImage = grid3dCardStyle === 'image';
+        const peakScale = isImage ? 1.25 : 1.2;
         const minScale = 0.5;
         const cards = container.querySelectorAll<HTMLElement>('[data-grid3d-index]');
         const viewportWidth = container.clientWidth;
@@ -844,9 +819,10 @@ export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUpOrLeave}
                 onMouseLeave={handleMouseUpOrLeave}
-                className={`w-full flex items-center overflow-x-auto overflow-y-hidden py-24 hide-scrollbar focus:outline-none ${
+                className={`w-full flex items-center overflow-x-auto overflow-y-hidden py-24 custom-scrollbar focus:outline-none ${
                     isInteractive ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
                 }`}
+                style={{ scrollbarWidth: 'none' }}
             >
                 <div className="flex" style={{ paddingInline: edgePadding }}>
                     {isLoading ? (
@@ -868,17 +844,17 @@ export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
                         {windowedItems.map((item, localIndex) => {
                             const index = windowStart + localIndex;
                             const isFocused = index === safeFocusedIndex;
+                            const folderPath = getLocalFolderPath(item);
+                            const displayName = getGrid3DSliderDisplayName(item);
+                            const secondaryText = getGrid3DSliderSecondaryText(item);
+                            const summaryText = getGrid3DSliderSummaryText(item);
 
                             return (
-                                <Grid3DSliderCard
+                                <div
                                     key={item.id}
-                                    item={item}
-                                    index={index}
-                                    isFocused={isFocused}
-                                    coverSize={coverSize}
-                                    cardStyle={grid3dCardStyle}
-                                    hasCover={loadedIndices.has(index)}
-                                    marginRight={index < items.length - 1 ? GRID3D_CARD_GAP : 0}
+                                    data-grid3d-index={index}
+                                    className="shrink-0 cursor-pointer pointer-events-auto select-none"
+                                    style={{ marginRight: index < items.length - 1 ? GRID3D_CARD_GAP : 0 }}
                                     onClick={() => {
                                         if (!isInteractive || dragDistanceRef.current >= 8) return;
                                         if (isFocused) {
@@ -1009,7 +985,6 @@ export const Grid3DSlider: React.FC<Grid3DSliderProps> = ({
 
             {!isLoading && focusedItem && (
                 <div
-                    data-grid3d-caption
                     className={`relative shrink-0 text-center z-10 px-8 pointer-events-none ${
                         hasFloatingPlayer ? 'pt-6 md:pt-8 pb-0 -mb-4 md:-mb-6' : 'pt-5 md:pt-6 pb-4'
                     }`}

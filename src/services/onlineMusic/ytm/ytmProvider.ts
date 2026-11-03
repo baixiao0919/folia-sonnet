@@ -14,10 +14,7 @@ import { ytmMutations } from './ytmMutations';
 import { resetYtmRecommendations, ytmRecommendations } from './ytmRecommendations';
 import { describeYtmLoginFailure, ytmLoginFailure } from './ytmLoginFailure';
 import { describeYtmFailure } from './ytmFailure';
-import { getYtmLoginDiagnostics, noteYtmLoginStatusCheck } from './ytmLoginDiagnostics';
-import { diagnosticLine } from '../login/loginDiagnosticReport';
 import i18n from '../../../i18n/config';
-import { isCapacitorAndroid } from '../../../platform/runtime';
 
 // src/services/onlineMusic/ytm/ytmProvider.ts
 // YouTube Music adapter. Sign-in is made in the person's own browser: the desktop side opens a
@@ -77,14 +74,7 @@ export const ytmProvider: OnlineMusicProvider = {
     // `recommendations` is the radio tab (ytmRecommendations.ts): a personal FM made of song
     // radios, and the playlists of the account's music page. It has no daily songs, which YouTube
     // Music has no counterpart of. Its recommendation page is the explore tab.
-    // The Android App signs in through its own native screen (android/ytmAndroidBridge.ts): what needs the
-    // account beyond that — the library, the explore tab, mutations of it — has no port there yet.
-    capabilities: isCapacitorAndroid() ? {
-        search: true, playback: true, lyrics: true, wordByWordLyrics: false, auth: true,
-        userLibrary: false, playlists: true, albums: true, artists: true, userAlbums: false,
-        recommendations: false, explore: false, mutations: false, playlistTrackMutations: false, likes: false,
-        playlistSubscription: false,
-    } : {
+    capabilities: {
         search: true, playback: true, lyrics: true, wordByWordLyrics: false, auth: true,
         userLibrary: true, playlists: true, albums: true, artists: true, userAlbums: true,
         recommendations: true, explore: true, mutations: true, playlistTrackMutations: true, likes: true,
@@ -176,26 +166,14 @@ export const ytmProvider: OnlineMusicProvider = {
     },
     auth: {
         // On macOS a browser goes on running after its last window is closed: the note says to quit it.
-        // On Android the sign-in opens on a screen of the app itself, and Google may refuse an embedded
-        // browser there: that is what this note says, instead of the browser-window one.
         getLoginTexts: () => ({
             title: 'home.loginTitleYtm',
-            ...(isCapacitorAndroid()
-                ? { note: 'home.loginNoteYtmAndroid' }
-                : { note: isMacPlatform ? 'home.loginNoteYtmBrowserMac' : 'home.loginNoteYtmBrowser' }),
+            note: isMacPlatform ? 'home.loginNoteYtmBrowserMac' : 'home.loginNoteYtmBrowser',
             // The desktop side found none of the browsers it opens: the window then says which ones the sign-in needs.
             caseNotes: { 'browser-unfinished': 'home.loginCaseYtmUnfinished', 'no-browser': 'home.loginNoBrowserYtm' },
         }),
         async getLoginStatus() {
-            let user: ProviderUser | null;
-            try {
-                user = await requestYtm<ProviderUser | null>('login_status');
-            } catch (error) {
-                noteYtmLoginStatusCheck(diagnosticLine`login_status failed: ${error instanceof Error ? error.message : String(error)}`);
-                throw error;
-            }
-            // 与另一家同一条规矩：只有「平台说这个登录不算数」才等于没人登录，其它错误必须抛出去。
-            noteYtmLoginStatusCheck(diagnosticLine`${user ? `signed in (id ${user.id ? 'present' : 'missing'}, nickname ${user.nickname ? 'present' : 'missing'})` : 'nobody is signed in'}`);
+            const user = await requestYtm<ProviderUser | null>('login_status');
             noteYtmAccount(user);
             return user ? normalizeYtmUser(user) : null;
         },
@@ -224,8 +202,6 @@ export const ytmProvider: OnlineMusicProvider = {
             return key;
         },
         describeLoginFailure: describeYtmLoginFailure,
-        // 登录确认之后账号没读出来（account-refresh-failed）时，报告里这一段靠它说出卡在哪。
-        getLoginDiagnostics: async () => getYtmLoginDiagnostics(),
         async openLoginPage() { await requestYtm('web_login_open'); },
         // The window of the sign-in is opened by its start, and closing it ends the sign-in.
         opensLoginPageItself: () => true,

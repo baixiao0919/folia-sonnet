@@ -7,7 +7,6 @@ import { getSongArtistLabel } from '../../services/onlineMusic/songMetadata';
 import { getPlaybackSongKey } from '../../utils/appPlaybackGuards';
 import { queueRowShift } from './queueDragGeometry';
 import type { QueueDrag } from './useQueueDragReorder';
-import { Button } from '../ui';
 
 // src/components/wall/WallToolsQueueRow.tsx
 // 队列浮岛（WallToolsQueueIsland）的一行（40px）：拖动手柄、主按钮（标题 + 歌手，点了播放、不跳页；当前歌曲有标记，
@@ -102,7 +101,8 @@ export function WallToolsQueueRow({
                     <GripVertical aria-hidden="true" />
                 </span>
             )}
-            <Button
+            <button
+                type="button"
                 className="lattice-tools-island-song"
                 aria-current={isCurrent ? 'true' : undefined}
                 onClick={() => actions.play(index)}
@@ -116,15 +116,16 @@ export function WallToolsQueueRow({
                     </span>
                     <span className="lattice-tools-island-artist">{getSongArtistLabel(song)}</span>
                 </span>
-            </Button>
+            </button>
             {rowActions.length > 0 && (
                 <span className="lattice-tools-island-row-actions">
                     {rowActions.map(({ id, label, icon: Icon, run }) => (
-                        <Button
+                        <button
                             key={id}
+                            type="button"
                             className="lattice-tools-island-row-action"
                             data-queue-row-action={id}
-                            tip={label}
+                            title={label}
                             aria-label={label}
                             onClick={event => {
                                 // 鼠标点的：行的内容马上会变（挪走 / 删掉），焦点别留在这颗按钮上露出聚焦框。
@@ -133,7 +134,7 @@ export function WallToolsQueueRow({
                             }}
                         >
                             <Icon aria-hidden="true" />
-                        </Button>
+                        </button>
                     ))}
                 </span>
             )}

@@ -63,8 +63,6 @@ export interface LumiereRuntimeOptions {
     audioBands: AudioBands;
     staticMode: boolean;
     showText: boolean;
-    /** 全局关键词着色（useVisualizerSettingsStore）；变了走 applySceneTuning 的重建判定。 */
-    keywordColoringEnabled: boolean;
     paused: boolean;
     metadata: LumiereSongMetadata;
     /** 分辨率倍数（乘在 resolveLumiereRenderResolution 上，画质档再从乘过的分辨率降图形组）；预览传 1。 */
@@ -125,7 +123,7 @@ export class LumierePixiRuntime {
         private readonly options: LumiereRuntimeOptions,
         private readonly app: import('pixi.js').Application,
     ) {
-        this.sceneTuning = toLumiereSceneTuning(options.tuning, { showText: options.showText, keywordColoringEnabled: options.keywordColoringEnabled });
+        this.sceneTuning = toLumiereSceneTuning(options.tuning, { showText: options.showText });
         this.audio = createLumiereAudioSampler({ audioPower: options.audioPower, audioBands: options.audioBands });
     }
 
@@ -450,16 +448,9 @@ export class LumierePixiRuntime {
         if (this.options.paused) this.renderOnce();
     }
 
-    setKeywordColoringEnabled(keywordColoringEnabled: boolean) {
-        if (this.destroyed || keywordColoringEnabled === this.options.keywordColoringEnabled) return;
-        this.options.keywordColoringEnabled = keywordColoringEnabled;
-        this.applySceneTuning();
-        if (this.options.paused) this.renderOnce();
-    }
-
     private applySceneTuning() {
         const previous = { ...this.sceneTuning };
-        const next = toLumiereSceneTuning(this.options.tuning, { showText: this.options.showText, keywordColoringEnabled: this.options.keywordColoringEnabled });
+        const next = toLumiereSceneTuning(this.options.tuning, { showText: this.options.showText });
         Object.assign(this.sceneTuning, next);
         this.refreshQuality();
         if (requiresLumiereSceneRebuild(previous, next)) this.scheduleRebuild();

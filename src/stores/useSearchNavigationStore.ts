@@ -10,15 +10,10 @@ import {
 } from '../services/playbackAdapters';
 import { omni } from '../services/onlineMusic/omni';
 import { isLocalPlaybackSong, isNavidromePlaybackSong } from '../utils/appPlaybackGuards';
-import { supportsLocalMusicImport } from '../platform/runtime';
-import { listAiCloudCacheSongs } from '../services/aiCloudCache';
-import { resolveCloudThemeSong } from '../library/core/collection/resource/cloudThemeCollectionDeps.service';
 
 const LAST_HOME_VIEW_TAB_KEY = 'last_home_view_tab';
 const DEFAULT_SEARCH_LIMIT = 30;
-/** 'cloud' = 「AI 主题」：在云端缓存的歌名里搜（曲目由客户端拿名字去平台上搜出来）。 */
-/** 'all' = 「全部」：每个能搜的在线平台各匀一点，掺上本地曲库一起出。 */
-export type SearchSource = OnlineProviderId | 'local' | 'navidrome' | 'cloud' | 'all';
+export type SearchSource = OnlineProviderId | 'local' | 'navidrome';
 export type SearchReturnView = 'home' | 'player';
 /** 搜什么：单曲、专辑或歌单。专辑和歌单只有在线平台搜得到（omni.getProviderSearchKinds），本地与 Navidrome 只搜单曲。 */
 export type SearchKind = OmniSearchKind;
@@ -38,14 +33,6 @@ type SearchExecutionResult = {
     nextOffset: number;
     total?: number;
 };
-
-/**
- * 流式回吐：某一路搜完了就先把它那批结果送上来（当前只有「全部」用）。
- *
- * **不保证是最终结果**：后面还有别的平台在跑，送上来的是「此刻已经有的全部」，
- * 下一次回调会把它整份再送一遍（不是增量追加），所以调用方直接整份替换即可。
- */
-type SearchPartialSink = (results: UnifiedSong[], hasMore: boolean) => void;
 
 type SearchCacheEntry = {
     results: UnifiedSong[];
@@ -73,14 +60,6 @@ interface SearchNavigationState {
     isSearching: boolean;
     isLoadingMore: boolean;
     searchError: string | null;
-    /**
-     * 搜索撞到“登录态失效”的那个平台。
-     *
-     * `searchError` 存的是 provider 抛出来的英文原话（"FeiNiu is not signed in"），
-     * 直接摆到界面上没人看得懂；而这里要的是**能点名平台**的中文提示，
-     * 那是展示层（能拿到 i18n 和平台显示名）的事，store 只负责把事实记下来。
-     */
-    searchAuthExpiredProvider: OnlineProviderId | null;
     requestId: number;
     offset: number;
     limit: number;
@@ -116,22 +95,11 @@ export const resolveSearchKind = (sourceTab: SearchSource, kind: SearchKind): Se
 );
 
 export const resolveSearchSource = (tab: HomeViewTab | SearchSource): SearchSource => {
-    if (tab === 'local' || tab === 'navidrome' || tab === 'cloud' || tab === 'all') {
+    if (tab === 'local' || tab === 'navidrome') {
         return tab;
     }
     if (tab !== 'playlist' && tab !== 'albums' && tab !== 'radio' && tab !== 'explore') return tab as OnlineProviderId;
     return DEFAULT_ONLINE_PROVIDER_ID;
-};
-
-/** 这条搜索来源对应的在线平台；本地 / Navidrome / 云缓存 / 「全部」没有单一平台，返回 null。 */
-const providerIdOf = (tab: SearchSource): OnlineProviderId | null => {
-    const resolved = resolveSearchSource(tab);
-    return resolved === 'local'
-        || resolved === 'navidrome'
-        || resolved === 'cloud'
-        || resolved === 'all'
-        ? null
-        : resolved;
 };
 
 export const resolveCommandPaletteSearchSource = (
@@ -201,74 +169,6 @@ const searchNavidromeSongs = async (query: string): Promise<SearchExecutionResul
     };
 };
 
-/**
- * 一批并发跑，跑完再换下一批。
- *
- * 「AI 主题」那一屏每一首都要拿歌名去平台上搜一次 —— 一次 30 个并发会把 Capacitor
- * 那座桥占死（别的平台跟着一起超时，见 Capacitor 桥那节），所以压到 6 个。
- */
-const CLOUD_RESOLVE_CONCURRENCY = 6;
-
-const mapWithConcurrency = async <T, R>(
-    items: readonly T[],
-    limit: number,
-    worker: (item: T) => Promise<R>,
-): Promise<R[]> => {
-    const results = new Array<R>(items.length);
-    let cursor = 0;
-    const lanes = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
-        for (;;) {
-            const index = cursor;
-            cursor += 1;
-            if (index >= items.length) return;
-            results[index] = await worker(items[index] as T);
-        }
-    });
-    await Promise.all(lanes);
-    return results;
-};
-
-/**
- * 「AI 主题」：在云端缓存的歌名里**搜**，或者不带词地**逛**。
- *
- * 云端只存歌名，所以先按名字在云端要一批（给了词就是筛），再拿这些名字去当前登着的
- * 平台把曲目搜出来 —— 与首页那一屏同一条路（cloudThemeCollectionDeps）。
- * 平台上搜不到的名字直接不出结果：列一行播不了的歌没有意义。
- *
- * **不带词 = 逛**：服务端按 `updated_at DESC` 排，永远从最新那一条开始翻，于是每次
- * 进来都是同一批歌。这里先问一次总数，再随机挑一个起点，从那儿顺序往下翻 —— 每次
- * 看到的是库里不同的一个窗口。剩下的交给 `loadMoreSearchResults` 接着往下懒加载。
- *
- * 随机起点只在第一页算：翻页时沿用传进来的 offset，否则每翻一页都跳到别处去。
- */
-const searchCloudThemeSongs = async (
-    query: string,
-    limit: number,
-    offset: number,
-): Promise<SearchExecutionResult> => {
-    const browsing = !query.trim();
-    let start = offset;
-    if (browsing && offset === 0) {
-        const probe = await listAiCloudCacheSongs({ limit: 1, offset: 0 }).catch(() => null);
-        const total = Number(probe?.total ?? 0);
-        if (total > limit) {
-            start = Math.floor(Math.random() * (total - limit + 1));
-        }
-    }
-    const page = await listAiCloudCacheSongs({ limit, offset: start, query }).catch(() => null);
-    const names = page?.songs ?? [];
-    if (names.length === 0) return { results: [], hasMore: false, nextOffset: offset };
-    const found = await mapWithConcurrency(
-        names,
-        CLOUD_RESOLVE_CONCURRENCY,
-        entry => resolveCloudThemeSong(entry.songTitle, entry.key).catch(() => null),
-    );
-    const results = found.filter((song): song is UnifiedSong => Boolean(song));
-    const total = Number(page?.total ?? 0);
-    const consumed = start + names.length;
-    return { results, hasMore: consumed < total, nextOffset: consumed };
-};
-
 const searchOnlineProviderSongs = async (
     providerId: OnlineProviderId,
     query: string,
@@ -300,8 +200,7 @@ const executeSearch = async (
     kind: SearchKind,
     offset: number,
     limit: number,
-    deps: SearchExecutorDeps,
-    onPartial?: SearchPartialSink
+    deps: SearchExecutorDeps
 ): Promise<SearchExecutionResult> => {
     if (sourceTab === 'local') {
         return searchLocalSongs(deps, query);
@@ -321,12 +220,7 @@ const getInitialHomeViewTab = (): HomeViewTab => {
         return 'playlist';
     }
     const savedTab = localStorage.getItem(LAST_HOME_VIEW_TAB_KEY);
-    return savedTab === 'playlist'
-        || (savedTab === 'local' && supportsLocalMusicImport())
-        || savedTab === 'albums'
-        || savedTab === 'navidrome'
-        || savedTab === 'radio'
-        || savedTab === 'explore'
+    return savedTab === 'playlist' || savedTab === 'local' || savedTab === 'albums' || savedTab === 'navidrome' || savedTab === 'radio' || savedTab === 'explore'
         ? savedTab
         : 'playlist';
 };
@@ -345,7 +239,6 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
     isSearching: false,
     isLoadingMore: false,
     searchError: null,
-    searchAuthExpiredProvider: null,
     requestId: 0,
     offset: 0,
     limit: DEFAULT_SEARCH_LIMIT,
@@ -353,11 +246,10 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
     scrollTop: 0,
     searchCache: {},
     setHomeViewTab: (tab) => {
-        const resolvedTab = tab === 'local' && !supportsLocalMusicImport() ? 'playlist' : tab;
         if (typeof window !== 'undefined') {
-            localStorage.setItem(LAST_HOME_VIEW_TAB_KEY, resolvedTab);
+            localStorage.setItem(LAST_HOME_VIEW_TAB_KEY, tab);
         }
-        set({ homeViewTab: resolvedTab });
+        set({ homeViewTab: tab });
     },
     setSearchQuery: (query) => set({ searchQuery: query }),
     setSearchScrollTop: (scrollTop) => set(state => {
@@ -392,7 +284,6 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
             hasMore: cached?.hasMore ?? false,
             scrollTop: cached?.scrollTop ?? 0,
             searchError: null,
-            searchAuthExpiredProvider: null,
             isSearching: false,
             isLoadingMore: false,
             isSearchOpen: true,
@@ -411,7 +302,6 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
         isSearching: false,
         isLoadingMore: false,
         searchError: null,
-        searchAuthExpiredProvider: null,
         requestId: state.requestId + 1,
         offset: 0,
         hasMore: false,
@@ -422,23 +312,13 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
     // away), so this keeps it in step. Local and Navidrome are left alone, and the results stay: clearing
     // them is the switch's job.
     followOnlineProvider: (providerId) => set(state => (
-        // 「本地」「Navidrome」「AI 主题」「全部」都不是某个在线平台：换了当前平台也不该把用户
-        // 从这几个页签上挪走（原来只放了前两个，于是停在「AI 主题」时换平台会被踢回网易云）。
-        state.searchSourceTab === 'local'
-            || state.searchSourceTab === 'navidrome'
-            || state.searchSourceTab === 'cloud'
-            || state.searchSourceTab === 'all'
-            || state.searchSourceTab === providerId
+        state.searchSourceTab === 'local' || state.searchSourceTab === 'navidrome' || state.searchSourceTab === providerId
             ? state
             : { searchSourceTab: providerId }
     )),
     submitSearch: async ({ query, sourceTab, kind, deps, returnView = 'home' }) => {
         const trimmedQuery = (query ?? get().searchQuery).trim();
-        /*
-         * 「AI 主题」那一屏是**逛**云端缓存里都有什么歌：点那个页签时手上还没有词，
-         * 空词也要能拉一屏下来（随机起点那一段见 searchCloudThemeSongs）。
-         */
-        if (!trimmedQuery && sourceTab !== 'cloud') {
+        if (!trimmedQuery) {
             return false;
         }
 
@@ -454,7 +334,6 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
             isSearching: true,
             isLoadingMore: false,
             searchError: null,
-            searchAuthExpiredProvider: null,
             requestId,
             searchResults: null,
             collectionResults: null,
@@ -463,19 +342,6 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
             hasMore: false,
             scrollTop: 0,
         });
-
-        /*
-         * 「全部」是流式的：一家搜完就先把那时已有的整批送上来（见 searchAllSources），
-         * 这里只管整份替换。
-         *
-         * **`isSearching` 留到最后才关**：它是「还有平台在跑」的意思，界面靠
-         * `searchResults` 有没有东西来决定画不画转圈，所以先出结果和「还在搜」能同时成立。
-         * 缓存也只写最终那一份 —— 中途那几批不是完整结果，写进去会把半屏结果当缓存。
-         */
-        const applyPartial = (results: UnifiedSong[], partialHasMore: boolean) => {
-            if (get().requestId !== requestId) return;
-            set({ searchResults: results, hasMore: partialHasMore });
-        };
 
         try {
             const result = await executeSearch(trimmedQuery, sourceTab, searchKind, 0, get().limit, deps);
@@ -512,19 +378,6 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
             if (get().requestId !== requestId) {
                 return false;
             }
-            /*
-             * 登录态失效是最该被看见的一类失败：它就发生在搜索这一下，
-             * 界面上却是干干净净的「没有结果」—— 用户只会以为这首歌搜不到。
-             * 记下平台，顺手把账号标成过期（首页和账户面板那套「登录已过期」会亮起来），
-             * 展示层再据此把提示换成能点名平台的那一句。
-             */
-            const authProviderId = error instanceof OnlineProviderError
-                && error.code === 'auth-required'
-                ? (error.providerId ?? providerIdOf(sourceTab))
-                : null;
-            if (authProviderId) {
-                noteProviderAuthExpired(authProviderId);
-            }
             set({
                 searchResults: [],
                 collectionResults: [],
@@ -534,7 +387,6 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
                 isSearching: false,
                 scrollTop: 0,
                 searchError: error instanceof Error ? error.message : 'search_failed',
-                searchAuthExpiredProvider: authProviderId,
             });
             return true;
         }
@@ -553,9 +405,6 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
             offset,
             limit,
         } = get();
-        // 翻页也走流式：中途那几批都挂在「进来时那一份」后面，最终那一次用同一个底，
-        // 所以不会出现「中途插了一批、最后又把整页追加一遍」的重复。
-        const baseResults = searchResults || [];
 
         if (
             searchSourceTab === 'local'
@@ -563,8 +412,7 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
             || !hasMore
             || isSearching
             || isLoadingMore
-            // 「AI 主题」是逛：它本来就没有词，空词也要能接着往下翻（见 submitSearch 那条注释）。
-            || (!searchQuery.trim() && searchSourceTab !== 'cloud')
+            || !searchQuery.trim()
         ) {
             return;
         }

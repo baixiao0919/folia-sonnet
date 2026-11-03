@@ -79,25 +79,6 @@ export interface VisualizerSharedProps {
     songAlbum?: string | null;
     coverUrl?: string | null;
     /**
-     * 只画歌词、不画封面那一块（莫奈的右侧封面列等）。
-     *
-     * 壁纸叠层是浮在原生壁纸之上的一层：封面是一张不透明的方形图，
-     * 挂上去就是把壁纸糊掉一大块 —— 而叠层存在的意义恰恰是**透出壁纸**。
-     * 所以叠层传 true，App 内播放页不传（那里封面本来就是构图的一部分）。
-     */
-    hideCoverArt?: boolean;
-    /**
-     * 画在壁纸叠层那一层（wallpaper.html 那个 document）上。
-     *
-     * 叠层浮在原生壁纸之上，存在的意义是**透出壁纸**，所以任何自带底色、自带背板的
-     * 东西都不能画：封面（见上面的 `hideCoverArt`）是一例，浮名那张「排版中」的
-     * 加载卡是另一例 —— 它是一块不透明的圆角卡片带大阴影，挂上去就是糊在壁纸上的
-     * 一块疤，而它在叠层上每来一份新数据就会闪一次。
-     *
-     * 只有壁纸叠层传 true；App 内播放页 / 预览 / OBS 都不传。
-     */
-    isWallpaperSurface?: boolean;
-    /**
      * Tempera canvas images shipped inline by the OBS overlay. That page is a separate browsing
      * context with no access to the app's IndexedDB, so when this is present the visualizer uses
      * it instead of reading the pool from storage.
@@ -265,14 +246,6 @@ export interface VisualizerRegistryEntry {
      * pendolo/usePendoloBeatFx.ts). Each model runs for the playing track only while a live effect on
      * screen reads it (beatClockTargets.ts).
      */
-    /** 样式自己画窗外时不要共用背景；窗外的选择是「共用背景」时才由宿主画。 */
-    showsBackground?: (tunings: VisualizerTuningBundle) => boolean;
-    /** 只在真正画着的时候才算这个效果（雾笺：窗外是水族箱时的水母随拍）。省略即全部算。 */
-    beatEffectOnScreen?: (effectId: string, tunings: VisualizerTuningBundle, pageTransparent: boolean) => boolean;
-    /** 样式保存的就是它时，启动后在第一屏之后预热，不阻塞首屏（雾笺的着色器预编译）。 */
-    prewarmWhenIdle?: boolean;
-    /** 空闲预热做的事：把重的东西（着色器、纹理）先编好，第一次切过去就不用等。 */
-    prewarm?: () => void | Promise<void>;
     beatEffects?: readonly BeatEffectDef[];
     /*
      * Work started at app start when this is the saved style, behind the first-screen splash, so the

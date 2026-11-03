@@ -66,17 +66,6 @@ export type PlayerChromeSettingsState = {
     enablePlayerPageNativeBlur: boolean;
     autoHidePlayerChrome: boolean;
     autoHideCursorWithPlayerChrome: boolean;
-    /**
-     * 点击歌词页的空白处切换控件显隐（再点一下回来）。与 autoHidePlayerChrome 不同：
-     * 那一项跟着指针空闲走，这一项只听点击。On by default — 歌词页上唯一的「点哪儿都行」
-     * 的手势，关掉它等于这一页只能从设置里藏。
-     */
-    hidePlayerChromeOnTap: boolean;
-    /**
-     * 控件被藏起来时，连底部字幕层（歌词动画设置里那一层）一起藏。
-     * On by default：点空白求的就是一片干净，字幕留着反而像没藏干净。
-     */
-    hideSubtitleWhenChromeHidden: boolean;
     hideCursorWhenIdle: boolean;
     showOpenPanelCloseButton: boolean;
     setTransparentPlayerBackgroundFromSystem: (enabled: boolean) => void;
@@ -96,8 +85,6 @@ export type PlayerChromeSettingsState = {
     handleWallpaperTransparentRefused: () => void;
     handleToggleAutoHidePlayerChrome: (enable: boolean) => void;
     handleToggleAutoHideCursorWithPlayerChrome: (enable: boolean) => void;
-    handleToggleHidePlayerChromeOnTap: (enable: boolean) => void;
-    handleToggleHideSubtitleWhenChromeHidden: (enable: boolean) => void;
     handleToggleHideCursorWhenIdle: (enable: boolean) => void;
     handleToggleOpenPanelCloseButton: (enable: boolean) => void;
 };
@@ -116,9 +103,7 @@ export const usePlayerChromeSettingsStore = create<PlayerChromeSettingsState>((s
     ),
     hidePlayerRightPanelButton: getStoredBoolean('hide_player_right_panel_button', false),
     alwaysShowPlayerBackButton: getStoredBoolean('always_show_player_back_button', false),
-    // 默认常显：这两个箭头原本只在指针悬停时才冒出来，触屏上根本没有「悬停」这一步，
-    // 用户看到的就是「上一首 / 下一首不能用了」。要藏是主动的选择，交给开关。
-    alwaysShowTrackSwitchButtons: getStoredBoolean('always_show_track_switch_buttons', true),
+    alwaysShowTrackSwitchButtons: getStoredBoolean('always_show_track_switch_buttons', false),
     alwaysShowMainWindowTitlebar: getStoredBoolean('always_show_main_window_titlebar', false),
     playerHeaderBlur: getStoredBoolean('player_header_blur', false),
     hideFullscreenButton: getStoredBoolean('hide_fullscreen_button', false),
@@ -129,8 +114,6 @@ export const usePlayerChromeSettingsStore = create<PlayerChromeSettingsState>((s
     // Rides the chrome auto-hide clock rather than owning one: the cursor goes away with the
     // controls it would have clicked. Opt-out, so auto-hide can keep the pointer if wanted.
     autoHideCursorWithPlayerChrome: getStoredBoolean('auto_hide_cursor_with_player_chrome', true),
-    hidePlayerChromeOnTap: getStoredBoolean('hide_player_chrome_on_tap', true),
-    hideSubtitleWhenChromeHidden: getStoredBoolean('hide_subtitle_when_chrome_hidden', true),
     hideCursorWhenIdle: getStoredBoolean('hide_cursor_when_idle', false),
     showOpenPanelCloseButton: getStoredBoolean('show_open_panel_close_button', true),
     setTransparentPlayerBackgroundFromSystem: (enabled) => {
@@ -147,22 +130,6 @@ export const usePlayerChromeSettingsStore = create<PlayerChromeSettingsState>((s
     handleToggleAutoHidePlayerChrome: (enabled: boolean) => {
         localStorage.setItem('auto_hide_player_chrome', enabled ? 'true' : 'false');
         set({ autoHidePlayerChrome: enabled });
-    },
-    handleToggleHidePlayerChromeOnTap: (enable) => {
-        setStoredBoolean('hide_player_chrome_on_tap', enable);
-        set({ hidePlayerChromeOnTap: enable });
-        setStatusMessage({
-            type: 'info',
-            text: i18n.t('notifications.' + (enable ? 'tapHidesPlayerChromeOn' : 'tapHidesPlayerChromeOff')),
-        });
-    },
-    handleToggleHideSubtitleWhenChromeHidden: (enable) => {
-        setStoredBoolean('hide_subtitle_when_chrome_hidden', enable);
-        set({ hideSubtitleWhenChromeHidden: enable });
-        setStatusMessage({
-            type: 'info',
-            text: i18n.t('notifications.' + (enable ? 'subtitleHidesWithChromeOn' : 'subtitleHidesWithChromeOff')),
-        });
     },
     handleToggleAutoHideCursorWithPlayerChrome: (enable) => {
         setStoredBoolean('auto_hide_cursor_with_player_chrome', enable);
@@ -314,8 +281,6 @@ export const selectPlayerChromeSettingsSnapshot = (state: PlayerChromeSettingsSt
     enablePlayerPageNativeBlur: state.enablePlayerPageNativeBlur,
     autoHidePlayerChrome: state.autoHidePlayerChrome,
     autoHideCursorWithPlayerChrome: state.autoHideCursorWithPlayerChrome,
-    hidePlayerChromeOnTap: state.hidePlayerChromeOnTap,
-    hideSubtitleWhenChromeHidden: state.hideSubtitleWhenChromeHidden,
     hideCursorWhenIdle: state.hideCursorWhenIdle,
     showOpenPanelCloseButton: state.showOpenPanelCloseButton,
     handleToggleHidePlayerProgressBar: state.handleToggleHidePlayerProgressBar,
@@ -334,8 +299,6 @@ export const selectPlayerChromeSettingsSnapshot = (state: PlayerChromeSettingsSt
     handleTogglePlayerPageNativeBlur: state.handleTogglePlayerPageNativeBlur,
     handleToggleAutoHidePlayerChrome: state.handleToggleAutoHidePlayerChrome,
     handleToggleAutoHideCursorWithPlayerChrome: state.handleToggleAutoHideCursorWithPlayerChrome,
-    handleToggleHidePlayerChromeOnTap: state.handleToggleHidePlayerChromeOnTap,
-    handleToggleHideSubtitleWhenChromeHidden: state.handleToggleHideSubtitleWhenChromeHidden,
     handleToggleHideCursorWhenIdle: state.handleToggleHideCursorWhenIdle,
     handleToggleOpenPanelCloseButton: state.handleToggleOpenPanelCloseButton,
     handleWallpaperTransparentRefused: state.handleWallpaperTransparentRefused,

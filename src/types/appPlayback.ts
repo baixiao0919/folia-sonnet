@@ -78,8 +78,6 @@ export type UnavailableReplacementRequest = {
     liveQueue?: () => { queue: SongResult[]; isFmCall: boolean } | null;
 };
 
-export type SkipPromptMessageKey = 'status.songUnavailablePrompt' | 'status.playbackErrorPrompt' | 'status.songUnplayableSkipPrompt';
-
 export type PlaybackSnapshot = {
     currentSong: SongResult | null;
     lyrics: LyricData | null;

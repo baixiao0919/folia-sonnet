@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { motion, motionValue, useTransform, MotionValue } from 'framer-motion';
 import { type GraphemeTiming } from '../../../utils/lyrics/graphemeTiming';
 import { getLineRenderEndTime } from '../../../utils/lyrics/renderHints';
-import { colorWithAlpha, mixColors } from '../../../utils/visualizer/colorMix';
+import { colorWithAlpha, mixColors } from '../colorMix';
 import { resolveMonetFillWidth, resolveMonetGlow } from './monetLyricMotion';
 import { buildWordColorRangesFromMatchers, resolveTokenColorMap, type WordColorMatcher } from '../wordColoring';
 import { buildMonetDisplayTokens, measureMonetGraphemeOffsets, resolveMonetSweepEdgeSoftness, resolveMonetSweepEnd, resolveMonetWordStatus, type MonetLineStatus } from './monetLyricsModel';
@@ -212,9 +212,6 @@ const MonetWordSweep: React.FC<{
                 {isLineActive ? (
                     <motion.span
                         aria-hidden
-                        // 逐字扫光的叠加层：index.css 的扁平档靠这个标记放行它的颜色
-                        // （挂标记而不是让 CSS 去猜内联样式，见 index.css 的 [data-folia-lyric-sweep] 段）。
-                        data-folia-lyric-sweep="1"
                         className="pointer-events-none absolute left-0 right-0 block whitespace-pre-wrap break-words"
                         style={{
                             top: -sweepOverflowPx,

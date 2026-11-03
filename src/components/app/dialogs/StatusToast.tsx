@@ -5,7 +5,6 @@ import { PlatformMark } from '../../login/PlatformMark';
 import { useReducedMotionFor } from '../../../hooks/useReducedMotionFor';
 import { usePlayerOverlayObstacle } from '../../../hooks/usePlayerOverlayLayout';
 import { holdStatusMessage } from '../../../stores/useStatusMessageStore';
-import { Button } from '@/components/ui';
 import type { AppStatusToast } from './buildAppDialogsModel';
 import './statusToast.css';
 import { useGlass } from '@/shinoinject/useGlass';
@@ -73,14 +72,10 @@ export const StatusToast: React.FC<{ toast: AppStatusToast }> = ({ toast }) => {
                 }}
             ref={toastLayoutRef}
             onUpdate={invalidateLayout}
-            /* 手机适配的 CSS 认它（见 src/styles/androidPhoneFit.css）。 */
-            data-folia-status-toast="true"
-            /* 安全区：提示条贴在顶上，让开挖孔那一带（见 androidPhoneFit.css ⑥）。 */
-            data-folia-safe-top="shift"
             initial={calm ? { opacity: 0 } : { opacity: 0, y: -18 }}
             animate={calm ? { opacity: 1, transition: { duration: 0.15 } } : { opacity: 1, y: 0, transition: { duration: 0.32, ease: EASE_OUT } }}
             exit={calm ? { opacity: 0, transition: { duration: 0.15 } } : { opacity: 0, y: -10, transition: { duration: 0.22, ease: EASE_IN } }}
-            className={`status-toast${isDaylight ? ' is-daylight' : ''}${cancel || action ? ' has-buttons' : ''}${open ? ' is-open' : ''}${calm ? ' is-calm' : ''}${toast.inert ? ' is-inert' : ''}${isPresent ? '' : ' is-leaving'}`}
+            className={`status-toast${isDaylight ? ' is-daylight' : ''}${cancel || action ? ' has-buttons' : ''}${open ? ' is-open' : ''}${calm ? ' is-calm' : ''}${isPresent ? '' : ' is-leaving'}`}
             onPointerEnter={() => rest(true)}
             onPointerLeave={() => rest(false)}
             onFocus={() => rest(true)}
@@ -108,12 +103,12 @@ export const StatusToast: React.FC<{ toast: AppStatusToast }> = ({ toast }) => {
                 {(cancel || action) && (
                     <span className="status-toast-buttons">
                         {cancel && (
-                            <Button onClick={cancel} className="status-toast-button is-ghost">
+                            <button type="button" onClick={cancel} className="status-toast-button is-ghost">
                                 {toast.cancelLabel}
-                            </Button>
+                            </button>
                         )}
                         {action && (countdown ? (
-                            <Button onClick={action} aria-label={`${toast.actionLabel} ${countdown.text}`} className="status-toast-button is-skip">
+                            <button type="button" onClick={action} aria-label={`${toast.actionLabel} ${countdown.text}`} className="status-toast-button is-skip">
                                 <span>
                                     {toast.actionLabel}
                                     <span className="status-toast-seconds">{countdown.seconds}</span>
@@ -121,12 +116,12 @@ export const StatusToast: React.FC<{ toast: AppStatusToast }> = ({ toast }) => {
                                 <span aria-hidden className="status-toast-fill" style={{ animationDuration: `${countdown.totalMs}ms` }}>
                                     {toast.actionLabel}
                                 </span>
-                            </Button>
+                            </button>
                         ) : (
-                            <Button onClick={action} className="status-toast-button is-primary">
+                            <button type="button" onClick={action} className="status-toast-button is-primary">
                                 {toast.actionIcon && <toast.actionIcon size={14} className={isDaylight ? 'text-amber-300' : 'text-amber-500'} />}
                                 {toast.actionLabel}
-                            </Button>
+                            </button>
                         ))}
                     </span>
                 )}

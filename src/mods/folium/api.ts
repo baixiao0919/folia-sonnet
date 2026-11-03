@@ -1,6 +1,5 @@
 import type { ModRuntimeInfo } from '../types';
 import { invokeModRpc, invokeModStorage } from '../ipc';
-import { callBuiltinRpc } from '../builtin/builtinRpc';
 import {
     type FoliumClientApi,
     type FoliumContextKind,
@@ -31,7 +30,6 @@ import { stylesRegistry } from './registries/styles';
 import { addFoliumEventHandler } from './events';
 import { bindFoliumStageRegistry } from './registries/stageRegistry';
 import { createFoliumLyricsService, createFoliumNetService, createFoliumPlaybackService, createFoliumUiService } from './services';
-import { createFoliumAiService } from './ai';
 import { createFoliumSecrets, declareFoliumSecretKeys } from './secrets';
 import { FOLIUM_THEME_HELPERS } from './sharedHelpers';
 import { FOLIUM_HOST_VERSION } from './shared';
@@ -124,15 +122,6 @@ const unwrap = async <T>(response: Promise<{ ok: boolean; result?: unknown; erro
         throw new Error(settled.error ?? 'folium-call-failed');
     }
     return settled.result as T;
-};
-
-/*
- * `folium.rpc.call`: 内置模组（随包、没有主进程入口）由渲染进程里的处理表回答，其余照旧问主进程
- * （builtin/builtinRpc.ts）。问不到处理表时才走 IPC，所以桌面端装的同一个模组还按老路走它的 main 入口。
- */
-const callFoliumRpc = async <T>(modId: string, name: string, args: unknown[]): Promise<T> => {
-    const builtin = await callBuiltinRpc(modId, name, args);
-    return unwrap<T>(Promise.resolve(builtin ?? invokeModRpc(modId, name, args)));
 };
 
 const createStorage = (modId: string, context: FoliumContextKind): FoliumStorage => {
@@ -263,7 +252,7 @@ export const createFoliumClientApi = (mod: ModRuntimeInfo, options: FoliumClient
     });
     const rpc = Object.freeze({
         call: <T>(name: string, ...args: unknown[]): Promise<T> => (
-            context === 'main' ? callFoliumRpc<T>(modId, name, args) : unavailable('rpc', context)
+            context === 'main' ? unwrap<T>(invokeModRpc(modId, name, args)) : unavailable('rpc', context)
         ),
         on: (name: string, listener: (payload: unknown) => void): FoliumDisposer => {
             if (typeof name !== 'string' || !FOLIUM_RPC_NAME_PATTERN.test(name)) {
@@ -319,7 +308,6 @@ export const createFoliumClientApi = (mod: ModRuntimeInfo, options: FoliumClient
         playback: createFoliumPlaybackService(mod, context),
         ui: createFoliumUiService(mod, context),
         net: createFoliumNetService(mod, context),
-        ai: createFoliumAiService(mod, context),
         storage: createStorage(modId, context),
         // Folium 1.7: only this mod's own `secret` values, like storage only its own data file.
         secrets: createFoliumSecrets(modId, context, onRelease),

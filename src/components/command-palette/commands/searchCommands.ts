@@ -1,7 +1,6 @@
 import { Search } from 'lucide-react';
 import type { SearchSource } from '../../../stores/useSearchNavigationStore';
 import type { CommandPaletteCommand, CommandPaletteContext, CommandPaletteSearchSource } from '../types';
-import { LOCAL_MUSIC_COMMAND_PLATFORMS } from '../../../platform/runtime';
 
 // src/components/command-palette/commands/searchCommands.ts
 // Commands in the `search` group: run a query against one music source and navigate to results.
@@ -77,7 +76,7 @@ const createSearchCommand = (
     description: string,
     keywords: string[],
     resolveSource: (context: CommandPaletteContext) => SearchSource,
-    options: Pick<CommandPaletteCommand, 'executeShortcut' | 'platform'> = {},
+    options: Pick<CommandPaletteCommand, 'executeShortcut'> = {},
 ): CommandPaletteCommand => ({
     id,
     group: 'search',
@@ -102,7 +101,7 @@ const createSearchCommand = (
 
 export const searchCommands: CommandPaletteCommand[] = [
     createSearchCommand('search-current', 'Search songs', 'Search songs in the current source', ['search', 'find', 'song', '搜索', '搜歌'], context => context.search.currentSearchSourceTab, { executeShortcut: 'f' }),
-    createSearchCommand('search-local', 'Search local songs', 'Search local library', ['local', 'local search', 'search local', '本地', '本地音乐'], () => 'local', { platform: [...LOCAL_MUSIC_COMMAND_PLATFORMS] }),
+    createSearchCommand('search-local', 'Search local songs', 'Search local library', ['local', 'local search', 'search local', '本地', '本地音乐'], () => 'local'),
     createSearchCommand('search-navidrome', 'Search Navidrome songs', 'Search Navidrome library', ['navi', 'navidrome', 'search navidrome', '导航', '服务器'], () => 'navidrome'),
     createSearchCommand('search-netease', 'Search NetEase songs', 'Search NetEase Cloud Music', ['netease', 'cloud', 'search netease', '网易云', '网抑云'], () => 'netease'),
 ];

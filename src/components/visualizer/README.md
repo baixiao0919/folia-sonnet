@@ -180,7 +180,7 @@ Visualizer 消费已解析的 `LyricData` / `Line` / `Word`，不负责解析 `.
 
 ### Monet
 
-`monet/VisualizerMonet.tsx` 组合 `MonetLyricsRail`（歌词栏外壳与滚动；行与扫字在 `MonetRailLine.tsx` / `MonetRailTokens.tsx`，布局在 `monetRailLayout.ts`）、浮动装饰和背景 pipeline（底部那条频谱与它的两个设置已整体移除，音频响应仍经 `audioBands` 走背景与封面）；图像资源还涉及 `src/services/monetBackgroundImage.ts`、`monetPortraitImage.ts`。混音过渡时：封面在过渡开始就换成下一首，淡入跟着交接进度（`MonetPortraitImage` 的 `progress`）；文字和歌词在交接过半（声音交叉点）时换，莫奈自己画的颜色（文字、装饰）同时换成下一首的主题，用原有的换歌入场动画，之后歌词栏读下一首自己的时钟和行（`monetSongHandoff.ts`）。
+`monet/VisualizerMonet.tsx` 组合 `MonetLyricsRail`（歌词栏外壳与滚动；行与扫字在 `MonetRailLine.tsx` / `MonetRailTokens.tsx`，布局在 `monetRailLayout.ts`）、`AudioOverlay`、浮动装饰和背景 pipeline；图像资源还涉及 `src/services/monetBackgroundImage.ts`、`monetPortraitImage.ts`。混音过渡时：封面在过渡开始就换成下一首，淡入跟着交接进度（`MonetPortraitImage` 的 `progress`）；文字和歌词在交接过半（声音交叉点）时换，莫奈自己画的颜色（文字、装饰）同时换成下一首的主题，用原有的换歌入场动画，之后歌词栏读下一首自己的时钟和行（`monetSongHandoff.ts`）。
 
 ### Diorama
 
@@ -189,6 +189,20 @@ Visualizer 消费已解析的 `LyricData` / `Line` / `Word`，不负责解析 `.
 ### Pendolo
 
 `pendolo/VisualizerPendolo.tsx` 是 React 外壳；`PendoloClockworkCanvas.tsx` 负责时钟机械 canvas（优先 WebGL2：`pendoloClockworkWebGL.ts` 绘制、`pendoloClockworkMeshes.ts` 缓存齿轮几何、`pendoloClockworkMotion.ts` 推进摆动；不支持时退回 `pendoloClockworkDraw2d.ts` 的 Canvas2D；`pendoloClockworkScene.ts` 放共用的帧输入、配色与画布包围盒），`pendoloTextLayout.ts`、`pendoloTimeline.ts`、`pendoloGeometry.ts` 负责有界布局与时间线，`PendoloSettingsPanel.tsx` 负责调参。
+
+智能动感模式下（`entry.tsx` 的 `beatEffects`：「仿真鼓面」读鼓点；「齿轮随拍」已搁置）：
+- 用的拍子：beat_this 的拍点经「无节奏关」过滤（beat_this + HPSS，`rhythmic`），被关掉的拍什么都不触发。齿轮、火花、震屏不读重音，每拍满强度，只乘轻拍 / 重拍强度；冲击波（连同光晕、刻度和表盘点亮）和宝石闪光按重音强度（`resolveBeatFxAccentGain`，已含轻拍 / 重拍强度）。原来每拍扫一圈、点亮刻度的扫光已去掉。
+- 机芯：大主齿轮和歌词照旧只跟歌词换行走，拍点不碰它们。主轮下方并排的传动齿轮和秒齿轮对着转：轻拍各走一齿，重拍各转一整圈，用略欠阻尼的弹簧，到位时冲过头不到一成再回弹（顿挫）。摆轮每拍换向。都在 `stepPendoloClockworkMotion` 的可选 `beat` 参数里，不传时与原来逐值一致（golden 单测锁定）；传动齿轮多转的角度是 `transBeatAngle`，关着时为 0。
+- 特效：状态和触发在 `pendoloBeatFx.ts`（纯函数），每帧推进在 `usePendoloBeatFx.ts`，画法在 `pendoloBeatFxDraw.ts`。
+  - 冲击波（轻拍、重拍都触发，强度跟重音）：透明的透镜，从轴心推到屏幕最远角，越往外越快（外角处约是出轴心时的五倍），一次走完用一拍的 85%，但在 0.3–0.5 秒之间（慢歌不会跟着变慢，只有快歌会更快），赶在下一拍的波从轴心重新出发前就出了表盘，推开（推出到轴心距离的 20% × 强度）、点亮并朝特效色染色经过的东西，不画任何环或线。齿轮上是 mesh shader 的 `u_wave` 位移、提亮和染色（Canvas2D 用 14 层切片重画），歌词行在 `PendoloRotatingLine` 里按到轴心的距离推开、提亮。摆轮上的主题图标（五角星）是 DOM，用 `resolvePendoloPointWave` 按 shader 同样的公式跟着摆轮移动。透镜本身不影响背景；同时 `VisualizerPendolo` 里有一层柔光晕（径向渐变，只有前沿一条软光带，后面是空的、扫过的地方立刻干净，边缘淡到 0，没有线；叠加混合），跟着冲击波从轴心长到屏幕最远角，扩散途中保持亮度，快到终点才淡出（`resolvePendoloHaloOpacity`）。强弱按分贝换算重音增益（`resolvePendoloWavePunch`：弱拍下限 0.35 比最强拍低 30 dB，亮度按指数变化，人眼看亮度近似对数，平方时中强拍看起来差不多；轻拍 / 重拍强度另外相乘）：弱拍的光晕淡、强拍满亮，都用同样的时间走到屏幕外角；表盘点亮的亮度也一样，放在震屏之外、齿轮和歌词之下。
+    - 波峰经过刻度那圈表盘（1.15 倍轮半径）时 60 个刻度一起亮，经过最外圈表盘（1.4 倍）时整圈亮起，都随后淡出（`lightPendoloDials`，overlay 里画）。
+  - 宝石闪光（各齿轮中心，轻拍、重拍都触发，强弱和光晕一样按重音增益的平方）：WebGL 是叠加混合的 overlay，Canvas2D 是 `lighter`。
+  - 以下只在重拍上：咬合火花（同样画在 overlay 里；火花和两个齿轮转整圈同时喷出，数量、速度、大小是最早一版的）、8px 震屏。
+- 颜色：主题强调色提亮到发光（`resolvePendoloBeatFxColor`），偏灰的主题用金色。
+- 鼓点（效果「仿真鼓面」，`pendolo.drumhead`）：装了 `htdemucs_gpu` 时，时计在屏上就读这首歌的鼓点（`services/analysis/drumHits.ts`，GPU 分离鼓轨，一首约十几秒，存盘后不再跑；边分边给，开始后一秒左右就有）。读到后不再用拍点：底鼓、军鼓让光晕在原地按分贝曲线亮起再快速回落，宝石和两圈表盘一起亮；底鼓让整个表面鼓起，重的再震屏；军鼓打在偏离中心的位置，重的让表面朝那边倾；镲片点亮刻度和刻度所在的内圈（只亮刻度太不明显，2026-10-17 加上内圈）。没有冲击波、没有火花。读到之前、`until` 之后还没算到的地方、没装模型、没有 WebGPU，或没有鼓的歌，时计不出任何效果。强度滑杆乘在光晕、鼓起、倾斜、震屏和镲片点亮上（倾斜、震屏的门槛仍按原始鼓点强度判断），1× 与调好的样子逐值一致。
+- 上面按拍点的那套效果（冲击波、光晕、火花、按拍震屏）已于 2026-10-17 废弃：代码保留，由 `usePendoloBeatFx.ts` 的 `PENDOLO_BEAT_LIST_FX` 关掉，不再运行。
+- 机芯随拍（上面「机芯」一条，效果「齿轮随拍」，`pendolo.gearBeats`）同日搁置：登记为 `retired`，`PendoloClockworkCanvas.tsx` 只在它的强度大于 0 时把拍点交给齿轮，所以齿轮照原来的样子走，时计也不再为它跑 beat_this。
+- 关闭或未就绪时，所有 MotionValue 为 0、shader 的 wave uniform 为 0、不画 overlay，画面与原来一致。
 
 ### Sonnet
 

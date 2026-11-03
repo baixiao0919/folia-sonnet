@@ -13,7 +13,7 @@ import {
 import { resolveMonetWordColor } from '@/components/visualizer/monet/monetRailLayout';
 import { buildMonetDisplayTokens, resolveMonetLyricContext } from '@/components/visualizer/monet/VisualizerMonet';
 import { buildMonetVisibleLineEntries, measureMonetLineLayout, resolveMonetSweepEdgeSoftness, resolveMonetSweepEnd } from '@/components/visualizer/monet/monetLyricsModel';
-import { colorWithAlpha, mixColors, parseColorChannels } from '@/utils/visualizer/colorMix';
+import { colorWithAlpha, mixColors, parseColorChannels } from '@/components/visualizer/colorMix';
 import { buildWordColorRanges, prepareWordColorMatchers, resolveTokenColorMap } from '@/components/visualizer/wordColoring';
 import { resolveStoredMonetBackgroundTuning } from '@/components/visualizer/backgrounds/monet/tuning';
 import { resolveStoredMonetTuning } from '@/components/visualizer/monet/tuning';
@@ -146,6 +146,9 @@ describe('Monet tuning and lyric helpers', () => {
 
     it('normalizes persisted Monet lyric and portrait tuning values', () => {
         expect(resolveStoredMonetTuning({
+            keywordColoringEnabled: false,
+            showAudioVisualization: false,
+            audioStyle: 'line',
             fontScale: 3,
             portraitSource: 'custom',
         })).toEqual({

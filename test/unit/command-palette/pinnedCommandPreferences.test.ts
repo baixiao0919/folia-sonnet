@@ -6,7 +6,7 @@ import {
     readPinnedCommandIds,
     resolvePinnedCommandSlots,
     writePinnedCommandIds,
-} from '../../../src/utils/pinnedCommandPreferences';
+} from '../../../src/components/command-palette/pinnedCommandPreferences';
 import type { CommandPaletteCommand } from '../../../src/components/command-palette/types';
 
 // test/unit/command-palette/pinnedCommandPreferences.test.ts

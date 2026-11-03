@@ -1,4 +1,4 @@
-﻿import type { StoredCacheEntry } from '../appDatabase';
+import type { StoredCacheEntry } from '../appDatabase';
 import type { CacheCategory } from './cacheRepository';
 // Pure: the analysis key prefixes, with nothing but a type import behind them.
 import { isBeatGridKey, isDrumHitsKey, isVocalEnvelopeKey } from '../analysis/beatGridKeys';

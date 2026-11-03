@@ -233,7 +233,7 @@ describe('core surface actions across suites', () => {
             'play-filtered',
             'enqueue-filtered',
             'sort-file-name',
-            'sort-file-modified',
+            'sort-modified-date',
             'sort-album-track',
             'sort-toggle-direction',
             'reload-online-collection',

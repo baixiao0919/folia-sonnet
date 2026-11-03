@@ -2,8 +2,6 @@ import type React from 'react';
 import type { MotionValue } from 'framer-motion';
 import type FloatingPlayerControls from '../../FloatingPlayerControls';
 import type SearchWorkspace from '../search/SearchWorkspace';
-import type ListeningArchive from '../listeningArchive/ListeningArchive';
-import { useListeningArchiveStore } from '../listeningArchive/listeningArchiveStore';
 import type DevDebugOverlay from '../../DevDebugOverlay';
 import type MemoryMonitorWindow from '../../debug/MemoryMonitorWindow';
 import type NowPlayingToast from './NowPlayingToast';
@@ -21,7 +19,6 @@ import type { PlayerControlSlotActionId } from '../../../types/playerControlSlot
 // src/components/app/overlays/buildAppOverlaysModel.ts
 
 type SearchOverlayProps = React.ComponentProps<typeof SearchWorkspace>;
-type ListeningArchiveProps = React.ComponentProps<typeof ListeningArchive>;
 type FloatingControlsProps = React.ComponentProps<typeof FloatingPlayerControls>;
 type DebugOverlayProps = React.ComponentProps<typeof DevDebugOverlay>;
 type MemoryMonitorProps = React.ComponentProps<typeof MemoryMonitorWindow>;
@@ -29,7 +26,6 @@ type NowPlayingToastProps = React.ComponentProps<typeof NowPlayingToast>;
 
 export type AppOverlaysModel = {
     searchOverlay?: SearchOverlayProps | null;
-    listeningArchiveOverlay?: ListeningArchiveProps | null;
     debugOverlay?: DebugOverlayProps | null;
     memoryMonitor?: MemoryMonitorProps | null;
     floatingControls?: FloatingControlsProps | null;
@@ -43,7 +39,6 @@ type AppOverlaysAmbient = {
 
     currentView: FloatingControlsProps['currentView'];
     isSearchOpen: boolean;
-    isListeningArchiveOpen: boolean;
     isDaylight: boolean;
     isDevDebugOverlayVisible: boolean;
     isMemoryMonitorVisible: boolean;
@@ -96,7 +91,7 @@ export type AppOverlaysDeps = {
     /** 搜索结果按当前本地曲库目录重算展示（见 SearchWorkspace 的同名 prop）。 */
     resolveSearchResultDisplay: NonNullable<SearchOverlayProps['resolveTrackDisplay']>;
     devDebugSnapshot: any;
-    effectiveLoopMode: 'off' | 'all' | 'one' | 'shuffle';
+    effectiveLoopMode: 'off' | 'all' | 'one';
     canToggleCurrentPlayback: boolean;
     isNowPlayingControlDisabled: boolean;
     stageActiveEntryKind: string | null;
@@ -133,7 +128,6 @@ type BuildAppOverlaysModelParams = AppOverlaysAmbient & AppOverlaysDeps;
 export const buildAppOverlaysModel = ({
     currentView,
     isSearchOpen,
-    isListeningArchiveOpen,
     theme,
     isDaylight,
     closeSearchView,
@@ -238,16 +232,6 @@ export const buildAppOverlaysModel = ({
             resolveTrackDisplay: resolveSearchResultDisplay,
         }
         : null,
-    // 听歌档案不按页面门控：它读的是已经落库的播放记录，从命令面板在任何页面上都能打开。
-    // 关闭走 store（这一层没有别处能关它的动作），和搜索 overlay 的 closeSearchView 一样是
-    // 「关掉那一个功能自己的展开状态」。
-    listeningArchiveOverlay: isListeningArchiveOpen
-        ? {
-            theme,
-            isDaylight,
-            onClose: () => useListeningArchiveStore.getState().close(),
-        }
-        : null,
     // Not gated on the view, and that was a real hole: the app cold-starts on the home page,
     // so after a restart the chord opened nothing until something had been played - which
     // reads exactly like the switch in Settings having lost its setting. This overlay is the
@@ -303,6 +287,7 @@ export const buildAppOverlaysModel = ({
             onTogglePlay: togglePlay,
             onToggleLoop: toggleLoop,
             onNavigateToPlayer: navigateFromPlayerCapsule,
+            onFocusLatticeCurrentSong: locatePlayingSongOnWall,
             noTrackText,
             primaryColor: 'var(--text-primary)',
             secondaryColor: 'var(--text-secondary)',

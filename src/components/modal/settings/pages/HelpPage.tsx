@@ -1,18 +1,16 @@
 import React from 'react';
-import { ChevronRight, CircleHelp, ExternalLink, Lightbulb, Sparkles, Users, type LucideIcon } from 'lucide-react';
+import { ChevronRight, CircleHelp, ExternalLink, Lightbulb, MessageCircle, Sparkles, Users, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { openPonderNavigation } from '../../../../services/ponder/pagePonderTarget';
 import { BUILD_KIND_TAGS, getBuildKind } from '../../../../utils/buildProvenance';
 import { PRIMARY_MODIFIER_LABEL } from '../../../../utils/platform';
+import { openDiscordInvite } from '../../../shared/discordCommunity';
 import { QQ_COMMUNITY_GROUP_NUMBER } from '../../../shared/qqCommunity';
 import { HELP_TAB_PLAYER_CONTROLS, HELP_TAB_PRIMARY_SHORTCUTS } from '../../userGuideContent';
 import { Button, CopyButton, CopyValue, Group, Keys, Row, type SettingsGroupDef } from '../kit';
 import { openOutsideLink } from '../../../../utils/system/outsideLink';
-import { isCapacitorAndroid } from '../../../../platform/runtime';
-import AndroidUpdatePanel from '../AndroidUpdatePanel';
 import { FoundUpdateRow } from './FoundUpdateRow';
 import { iconLabel } from './iconLabel';
-import { Button as UiButton } from '@/components/ui';
 
 // src/components/modal/settings/pages/HelpPage.tsx
 // The 帮助 page, reached from the foot of the side list: two entry cards (the release notes, the
@@ -52,7 +50,8 @@ type TileProps = {
 
 /** An entry card: an icon, a title, one line, and an arrow. The whole card opens what it names. */
 const Tile: React.FC<TileProps> = ({ testId, icon: Icon, title, line, onClick }) => (
-    <UiButton
+    <button
+        type="button"
         data-testid={testId}
         onClick={onClick}
         className="group st-t-fast flex min-h-[72px] items-center gap-3.5 rounded-xl bg-[var(--st-card)] px-4 py-3.5 text-left shadow-[0_0_0_1px_var(--st-line)] transition-colors hover:bg-[color-mix(in_srgb,var(--st-card)_93%,var(--st-t1))]"
@@ -65,7 +64,7 @@ const Tile: React.FC<TileProps> = ({ testId, icon: Icon, title, line, onClick })
             <span className="mt-0.5 block text-xs leading-[18px] text-[color:var(--st-t2)]">{line}</span>
         </span>
         <ChevronRight size={16} className="st-t-fast shrink-0 text-[color:var(--st-t3)] transition-transform group-hover:translate-x-0.5" />
-    </UiButton>
+    </button>
 );
 
 type KeyRowProps = {
@@ -147,6 +146,7 @@ const HelpPage: React.FC<HelpPageProps> = ({ onOpenReleaseNotes, onOpenAiHelp, o
 
             <Group def={SUPPORT} bare>
                 <Row label={iconLabel(CircleHelp, t('aiHelp.openButton'))} onClick={onOpenAiHelp} />
+                <Row label={iconLabel(MessageCircle, t('help.joinDiscord'))} onClick={openDiscordInvite} />
                 {/* A QQ group has no link that opens it: the row gives its number to copy. */}
                 <Row label={iconLabel(Users, t('help.communityQq'))}>
                     <CopyValue value={QQ_COMMUNITY_GROUP_NUMBER} />
@@ -165,15 +165,10 @@ const HelpPage: React.FC<HelpPageProps> = ({ onOpenReleaseNotes, onOpenAiHelp, o
                     <Row sub notice={t(BUILD_KIND === 'unofficial' ? 'options.unofficialBuildNotice' : 'options.selfHostedBuildNotice')} />
                 )}
                 <FoundUpdateRow sub />
-                {/*
-                    安卓端单独一条：上面那块读的是 electron-updater 的状态，在 WebView 里恒为空。
-                    手机上没有静默安装这条路 —— 检查、下载进度、下载 / 安装全在这张卡片里。
-                */}
-                {isCapacitorAndroid() && <AndroidUpdatePanel />}
                 <Row
                     label={(
                         // The settings window counts the clicks and shows the cat at the seventh.
-                        <UiButton onClick={onProjectLabelClick} className="cursor-default">{t('help.madeBy')}</UiButton>
+                        <button type="button" onClick={onProjectLabelClick} className="cursor-default">{t('help.madeBy')}</button>
                     )}
                 >
                     <Button variant="quiet" onClick={() => openOutsideLink(SHINO_REPOSITORY_URL)}>

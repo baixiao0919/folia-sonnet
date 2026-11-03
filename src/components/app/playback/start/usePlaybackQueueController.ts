@@ -7,7 +7,7 @@ import { getSongResourceCacheKey } from '../../../../services/onlineMusic/resour
 import { getPersonalFmSelection } from '../../../../stores/usePersonalFmModeStore';
 import { omni } from '../../../../services/onlineMusic/omni';
 import { getCachedSongCoverUrl, hasCachedSongAudio } from '../../../../services/onlineMusic/resourceCache';
-import { getPrefetchedData, invalidateAndRefetch, prefetchNearbySongs, refreshPrefetchAfterQueueEdit, warmupSongAudio } from '../../../../services/prefetchService';
+import { getPrefetchedData, invalidateAndRefetch, prefetchNearbySongs, refreshPrefetchAfterQueueEdit } from '../../../../services/prefetchService';
 import { getLocalSong } from '../../../../services/db';
 import { retireBlobUrl } from '../../../../services/playbackBlobUrls';
 import type { ThemeCacheSongKey } from '../../../../services/themeCache';
@@ -41,7 +41,6 @@ import {
     queueLoopMode,
     resolvePlaybackNeighbors,
 } from '../../../../utils/playbackNeighbors';
-import { buildShuffledQueue } from '../../../../utils/playbackShuffle';
 import { freshFmSongs } from '../../../../utils/fmQueue';
 import { applyQueueAddBehavior } from '../../../../utils/queueAddBehavior';
 import { moveQueueItem } from '../../../../utils/queueReorder';
@@ -53,7 +52,7 @@ import { playbackFade } from '../../../../services/playbackFade';
 import { getProviderSongMetadata } from '../../../../services/onlineMusic/songMetadata';
 import { setStatusMessage as setStatusMsg } from '../../../../stores/useStatusMessageStore';
 import { setAudioSrc, setCachedCoverUrl, setCurrentLineIndex, setCurrentSong, setDuration, setIsFmMode, setPlayQueue, setPlayerState, startLoadingToPlay, usePlaybackStore } from '../../../../stores/usePlaybackStore';
-import { askedSongKeyRef, askForSong, makeSongCurrent, playsDroppedSoFar, showSong, startOfAskedSong, startPlay, withdrawAsk } from '../currentSong';
+import { askedSongKeyRef, askForSong, playsDroppedSoFar, showSong, startOfAskedSong, startPlay, withdrawAsk } from '../currentSong';
 import { loadOnlineSongAudio } from '../source/songAudioSource';
 import { onlineFailureToast } from '../source/onlineFailureToast';
 import { offersRetry, onlineFailureOf, stopsPlayback, type OnlineFailure } from '../../../../services/onlineMusic/failure/onlineFailureCase';
@@ -156,15 +155,6 @@ type UsePlaybackQueueControllerParams = {
     getDisplaySong?: () => SongResult | null;
     /** Ends a blend that a manual skip has overtaken. Called before navigating away from it. */
     endHeldTransition?: () => void;
-    /**
-     * 两轨合一：原生播放激活（原生正在放或暂停中持有这首歌）时为 true。
-     * 点歌 / 切歌分流给原生执行（playFromQueue / requestSkip），JS 只做 UI 认领。
-     */
-    nativePlaybackRef: MutableRefObject<boolean>;
-    /** 队列里每首歌的红心状态（同步读账号缓存），分流时随队列一起交给原生。 */
-    nativeLikeStateOf: (song: SongResult) => { liked: boolean; canLike: boolean } | undefined;
-    /** 原生解析失败过的歌（会话级黑名单）：这些歌不再分流，直接走 Web 全流程。 */
-    nativeFailedKeysRef: MutableRefObject<Set<string>>;
 };
 
 const MAX_UNAVAILABLE_AUTO_SKIP_COUNT = 2;
@@ -258,9 +248,6 @@ export function usePlaybackQueueController({
     lastAudioRecoverySourceRef,
     getDisplaySong,
     endHeldTransition,
-    nativePlaybackRef,
-    nativeLikeStateOf,
-    nativeFailedKeysRef,
 }: UsePlaybackQueueControllerParams) {
     // Owned here, not passed in: nothing outside this hook reads or writes them. They were declared
     // in App.tsx only because everything about playback used to be.
@@ -555,94 +542,6 @@ export function usePlaybackQueueController({
             return;
         }
         const song = allowedSong;
-
-        // 两轨合一的分派点：原生播放激活时，App 内点歌不再由 JS 解析地址、起 <audio>，
-        // 而是把「这首歌 + 手里最新的队列」整体交给原生执行（原生解析、播放、推回
-        // syncTo 认领对齐界面）。JS 只做 UI 认领，不再与原生抢歌。
-        //  · FM / automix / beforePlay 钩子的播放保持 Web 流程（它们有自己的语义）；
-        //  · 原生没接住（未激活 / 队列里定位不到 / 解析失败）→ 会话级黑名单 + 回退 Web
-        //    全流程，不重试不卡住。
-        if (nativePlaybackRef.current && !isFmCall && !options.isAutomixAdvance && !hasBeforePlayHook()) {
-            const nativeKey = getPlaybackSongKey(song);
-            if (!nativeFailedKeysRef.current.has(nativeKey)) {
-                // 作废一切在途的 Web 播放 / 切歌：这一单归原生，认领走 syncTo。
-                playSongCallIdRef.current += 1;
-                // 留着这一单的「还要不要」判据：等原生真起播的时候，用户可能已经点了别的歌。
-                const stillWanted = startPlay();
-                interruptStagePlaybackForMainTransition();
-                if (options.shouldNavigateToPlayer ?? true) navigateToPlaybackView();
-                // 调用者手里的队列是最新的（镜像 effect 可能还没跑），随分派一起落进原生。
-                const mirrorQueue = queue.length > 0 ? queue : usePlaybackStore.getState().playQueue;
-                const mirrorIndex = mirrorQueue.findIndex((entry) => getPlaybackSongKey(entry) === nativeKey);
-                if (mirrorIndex >= 0) {
-                    /*
-                     * 这一单的队列先落进 store。
-                     *
-                     * 后面的兜底全在 store 的 playQueue 里找歌：syncTo 认领
-                     * （useAppPlaybackBridges 的 onSyncToSong）、nativePlayFailed 回退
-                     * （同文件的 onNativePlayFailed）。store 里还是点歌前那份旧队列的话，
-                     * 这两条都会「找不到这首歌」然后安静地什么都不做 —— 点歌一旦失败就
-                     * 再也回不来，只能按下一首自救。
-                     */
-                    setPlayQueue(mirrorQueue);
-                    try {
-                        // 原生派发只多带这一首已经预热好的 HTTP 地址；没有就保持镜像原样，
-                        // 由原生自己向平台解析（不在这里多等一次）。
-                        const nativePrefetched = getPrefetchedData(song, audioQuality);
-                        const nativeAudioUrl = nativePrefetched?.audioUrl
-                            && nativePrefetched.audioUrl !== 'CACHED_IN_DB'
-                            && /^https?:\/\//i.test(nativePrefetched.audioUrl)
-                            ? nativePrefetched.audioUrl
-                            : null;
-                        const mirrorEntries = buildQueueMirrorEntries(mirrorQueue, nativeLikeStateOf);
-                        const dispatchEntries = nativeAudioUrl
-                            ? mirrorEntries.map((entry, entryIndex) => (
-                                entryIndex === mirrorIndex ? { ...entry, url: nativeAudioUrl } : entry
-                            ))
-                            : mirrorEntries;
-                        const { ok } = await FoliaPlayback.playFromQueue({
-                            songKey: nativeKey,
-                            queueJson: JSON.stringify(dispatchEntries),
-                            index: mirrorIndex,
-                        });
-                        if (ok) {
-                            /*
-                             * `ok` 只表示原生**受理**了这一单，不表示地址已经装进 ExoPlayer：
-                             * playFromQueue 在起解析线程之前就回了 true，真正换源要等平台的
-                             * 地址回来（nativePlayMirrorEntry）。
-                             *
-                             * 等一个到达信号，而且**只信引擎**：`FoliaNativePlayer.getSnapshot()`
-                             * 报的 songKey 是 MediaItem 的 mediaId，等于引擎真的换过去了。
-                             * 之前读的是 FoliaPlayback.getPlaybackSnapshot().songKey，那个值
-                             * Web 自己推一次 metadata 就改了 —— 界面一认领新歌就算「到达」，
-                             * 引擎还在放上一首也照样通过（用户实测：冷启动自动播放后再点歌单，
-                             * 界面是刚点的歌、声音是上一首）。等不到就不认这一单，落回下面的
-                             * Web 全流程自己放，保证名字与声音永远一起变。
-                             */
-                            const arrived = await waitForNativeArrival({
-                                readEngine: () => nativePlayer.getSnapshot(),
-                                expectsKey: nativeKey,
-                                stillWanted,
-                            });
-                            if (arrived) {
-                                makeSongCurrent(song);
-                                setPlayerState(PlayerState.PLAYING);
-                                // 原生已经接住这一单，再轻量预热相邻的一首（只音频地址，
-                                // 不取歌词、不做分析）；拿不到也不影响当前播放。
-                                const nextSong = mirrorQueue[mirrorIndex + 1];
-                                if (nextSong) void warmupSongAudio(nextSong, audioQuality);
-                                return;
-                            }
-                        }
-                    } catch {
-                        // 桥不可用（老版本原生没有这个方法）：照常走 Web 全流程。
-                    }
-                    // 原生没接住：本次会话不再分流给这首歌，回退 Web。
-                    nativeFailedKeysRef.current.add(nativeKey);
-                }
-            }
-        }
-
         // A pause still fading out belongs to the song being replaced. Run it now instead of
         // dropping it: the old song is still sounding and the new one can take seconds to load, so
         // dropping it would leave the old song at full volume under a PAUSED player. The fade node
@@ -763,14 +662,13 @@ export function usePlaybackQueueController({
                 setStatusMsg(withSignInAction(shown, said, t));
             };
             if (stopsPlayback(shown, readAutoSkipUnplayable())) {
-                if (isPlaybackInterfaceHidden()) notifyBackgroundPlaybackNotice(said.text);
                 stopHere();
                 tellFailure(shown, false);
                 return;
             }
             const nextSong = getNextPlayableQueueSong(queueContext, song, isFmCall);
             if (nextSong && skipCount < MAX_UNAVAILABLE_AUTO_SKIP_COUNT) {
-                const skipNow = () => {
+                showTimedSkipPrompt(said, () => {
                     if (!isLatestPlaybackRequest()) return;
                     // The queue was replaced whole meanwhile: the skip steps through the queue and FM of now
                     // from this song (from the first entry when the new queue does not hold it), as a skip
@@ -791,21 +689,10 @@ export function usePlaybackQueueController({
                         ...deferredPlayOptions,
                         unavailableSkipCount: skipCount + 1,
                     });
-                };
-                // 后台不排倒计时（timer 会被节流甚至冻结）：当场跳走，原因交给系统气泡。
-                if (isPlaybackInterfaceHidden()) {
-                    notifyBackgroundPlaybackNotice(`${said.text} · ${t('status.autoSkippedNext')}`);
-                    skipNow();
-                    tellFailure(shown, true);
-                    return;
-                }
-                showTimedSkipPrompt(said, skipNow, stopsPlayback(shown) ? () => { if (isLatestPlaybackRequest()) stopHere(); } : undefined);
+                }, stopsPlayback(shown) ? () => { if (isLatestPlaybackRequest()) stopHere(); } : undefined);
                 tellFailure(shown, true);
                 return;
             }
-            // 跳不动了（没有下一首，或连跳次数用尽）：后台照样补一句气泡，
-            // 否则用户连「为什么没声了」都无从知道。
-            if (isPlaybackInterfaceHidden()) notifyBackgroundPlaybackNotice(said.text);
             if (stopsPlayback(shown)) {
                 stopHere();
             } else {
@@ -1003,8 +890,6 @@ export function usePlaybackQueueController({
             ? applyOnlineAudioSourceMetadata(song, preloadedOnlineAudioResult.replayGain)
             : song;
         const resolvedQueue = replacePlaybackSongInQueue(newQueue, resolvedSong);
-        // playSong 把两步拆开（这里登记在 currentSongArchitecture.test.ts 的 TWO_STEPS）：
-        // 先问，等歌词状态回来、确认这一单没被后来的播放顶掉，再把画面交出去。
         askForSong(song);
         // Which start of the song this is: a newer play of this same song asks again under the same key.
         const askedStart = startOfAskedSong();
@@ -1034,7 +919,6 @@ export function usePlaybackQueueController({
         setCurrentLineIndex(-1);
         currentTime.set(0);
         setDuration(0);
-        // 与上面的 askForSong 是一对：歌词状态已经写完，这里才把画面交出去。
         showSong({ ...resolvedSong, onlineLyricsState: onlineLyricsState ?? undefined });
         setCachedCoverUrl(null);
         setAudioSrc(null);
@@ -1158,9 +1042,6 @@ export function usePlaybackQueueController({
         localSongs,
         mainPlaybackSnapshotRef,
         navigateToPlaybackView,
-        nativeFailedKeysRef,
-        nativeLikeStateOf,
-        nativePlaybackRef,
         onPlayLocalSong,
         onPlayNavidromeSong,
         pendingResumeTimeRef,
@@ -1352,24 +1233,6 @@ export function usePlaybackQueueController({
         // through as the transition's own doing - leaving the fade running against a deck that is
         // reloading underneath it.
         if (heldSong) endHeldTransition?.();
-
-        // 两轨合一：切歌分流。原生在镜像里定位当前首的下一首直接放，JS 收 syncTo
-        // 认领对齐界面。FM / 随机（尾部重排是 Web 的活）/ 混音接管（automix）/ 失败
-        // 恢复（fromSong）的步进有自己的语义，留在 Web。原生定位不到相邻首会回
-        // skipped=false，这里照旧走 Web 逻辑（它兜得住队尾停止、FM 补货这些分支）。
-        if (nativePlaybackRef.current && !isFmMode && loopMode !== 'shuffle' && !heldSong
-            && !options?.isAutomixAdvance && !options?.fromSong && playQueue.length > 0 && currentSong) {
-            try {
-                const { skipped } = await FoliaPlayback.requestSkip({ direction: 1 });
-                if (skipped) {
-                    if (shouldNavigateToPlayer) navigateToPlaybackView();
-                    return;
-                }
-            } catch {
-                // 桥不可用（老版本原生没有这个方法）：照常走 Web 流程。
-            }
-        }
-
         const currentIndex = queueIndexOf(playQueue, heldSong ?? options?.fromSong ?? currentSong);
         // Personal FM never goes round to the queue's first track: when the fetch below fails or
         // comes back empty on the last track, there is no next track.
@@ -1430,21 +1293,6 @@ export function usePlaybackQueueController({
             return;
         }
 
-        // 随机播放：走到队尾时**把后面的重新打乱一遍**再接着播。
-        // 当前这首会变成新队首，所以顺位就是第二首 —— 随机播放因此不会停在最后一首。
-        if (loopMode === 'shuffle' && !isFmMode && currentIndex >= 0 && currentIndex === playQueue.length - 1 && playQueue.length > 1) {
-            const nextQueue = buildShuffledQueue(playQueue, getPlaybackSongKey(heldSong ?? options?.fromSong ?? currentSong ?? playQueue[currentIndex]));
-            setPlayQueue(nextQueue);
-            const nextSong = nextQueue[1];
-            if (!nextSong) return;
-            void playSong(nextSong, nextQueue, isFmMode, {
-                shouldNavigateToPlayer,
-                unavailableSkipCount: options?.unavailableSkipCount,
-                isAutomixAdvance: options?.isAutomixAdvance,
-            });
-            return;
-        }
-
         const nextIndex = nextQueueIndex(playQueue.length, currentIndex, indexLoopMode);
 
         if (nextIndex >= 0) {
@@ -1456,9 +1304,9 @@ export function usePlaybackQueueController({
         } else if (options?.allowStopOnMissing) {
             stopAtQueueEnd();
         }
-    }, [audioRef, currentSong, endHeldTransition, getDisplaySong, isFmMode, isNowPlayingStageActive, loopMode, navigateToPlaybackView, nativePlaybackRef, playQueue, playSong, setPlayQueue, setPlayerState, shouldNavigateToPlayerOnTrackChange]);
+    }, [audioRef, currentSong, endHeldTransition, getDisplaySong, isFmMode, isNowPlayingStageActive, loopMode, playQueue, playSong, setPlayQueue, setPlayerState, shouldNavigateToPlayerOnTrackChange]);
 
-    const handlePrevTrack = useCallback(async () => {
+    const handlePrevTrack = useCallback(() => {
         if (isNowPlayingStageActive) return;
         if (!currentSong || playQueue.length === 0) return;
 
@@ -1467,20 +1315,6 @@ export function usePlaybackQueueController({
         // replays the current song instead of going past it.
         const heldSong = getDisplaySong?.() ?? null;
         if (heldSong) endHeldTransition?.();
-
-        // 两轨合一：上一首同样分流给原生（见 handleNextTrack 的注释）。
-        if (nativePlaybackRef.current && !isFmMode && loopMode !== 'shuffle' && !heldSong) {
-            try {
-                const { skipped } = await FoliaPlayback.requestSkip({ direction: -1 });
-                if (skipped) {
-                    if (shouldNavigateToPlayerOnTrackChange) navigateToPlaybackView();
-                    return;
-                }
-            } catch {
-                // 桥不可用（老版本原生没有这个方法）：照常走 Web 流程。
-            }
-        }
-
         const currentIndex = queueIndexOf(playQueue, heldSong ?? currentSong);
         // Nor does Personal FM jump back from its first track to the newest one at the queue's end.
         const prevIndex = prevQueueIndex(playQueue.length, currentIndex, queueLoopMode(loopMode, isFmMode));
@@ -1490,7 +1324,7 @@ export function usePlaybackQueueController({
                 shouldNavigateToPlayer: shouldNavigateToPlayerOnTrackChange,
             });
         }
-    }, [currentSong, endHeldTransition, getDisplaySong, isFmMode, isNowPlayingStageActive, loopMode, navigateToPlaybackView, nativePlaybackRef, playQueue, playSong, shouldNavigateToPlayerOnTrackChange]);
+    }, [currentSong, endHeldTransition, getDisplaySong, isFmMode, isNowPlayingStageActive, loopMode, playQueue, playSong, shouldNavigateToPlayerOnTrackChange]);
 
     // A failure's buttons may be pressed long after: they call the newest handleNextTrack / playSong, with
     // the queue of that moment. The failures of playSong use it too; their closures read `.current` only
@@ -1523,15 +1357,12 @@ export function usePlaybackQueueController({
         };
 
         if (shown && stopsPlayback(shown, readAutoSkipUnplayable())) {
-            if (isPlaybackInterfaceHidden()) notifyBackgroundPlaybackNotice(said.text);
             stopHere(shown);
             tell(false);
             return;
         }
 
         if (!hasNextTrack || skipCount >= MAX_UNAVAILABLE_AUTO_SKIP_COUNT) {
-            // 跳不动了：页面里的提示条在后台根本没渲染，原因只靠系统气泡说一次。
-            if (isPlaybackInterfaceHidden()) notifyBackgroundPlaybackNotice(said.text);
             if (shown && stopsPlayback(shown)) {
                 stopHere(shown);
                 tell(false);
@@ -1559,7 +1390,7 @@ export function usePlaybackQueueController({
         }
 
         const nextSkipCount = skipCount + 1;
-        const skipNow = () => {
+        showTimedSkipPrompt(said, () => {
             playbackAutoSkipCountRef.current = nextSkipCount;
             // The newest handleNextTrack: the queue as it is when the skip comes, edits made meanwhile kept.
             void latestQueueActionsRef.current.handleNextTrack({
@@ -1570,17 +1401,7 @@ export function usePlaybackQueueController({
                 // one on screen. Skipping from the displayed track would step onto the broken one.
                 fromSong: currentSong ?? undefined,
             });
-        };
-        // 后台不排倒计时：timer 在 WebView 退到后台后会被节流甚至整页冻结，「几秒后自动跳过」
-        // 可以变成再也没跳过，用户只感觉到放着放着就哑了。当场跳走，并把原因交给系统气泡 ——
-        // 那是后台唯一看得见的东西（页面里的提示条此时根本没渲染）。
-        if (isPlaybackInterfaceHidden()) {
-            notifyBackgroundPlaybackNotice(`${said.text} · ${t('status.autoSkippedNext')}`);
-            if (isFailedPlaybackCurrent()) skipNow();
-            tell(true);
-            return;
-        }
-        showTimedSkipPrompt(said, skipNow, shown && stopsPlayback(shown) ? () => { if (isFailedPlaybackCurrent()) stopHere(shown); } : undefined);
+        }, shown && stopsPlayback(shown) ? () => { if (isFailedPlaybackCurrent()) stopHere(shown); } : undefined);
         tell(true);
     }, [audioRef, clearPendingUnavailableSkip, currentSong, isFmMode, loopMode, playQueue, playbackAutoSkipCountRef, setPlayerState, shouldAutoPlayRef, showTimedSkipPrompt, t]);
 
@@ -1903,29 +1724,6 @@ export function usePlaybackQueueController({
             invalidateAndRefetch(currentSong, nextQueue, audioQuality, userId);
         }
     }, [audioQuality, currentSong, isFmMode, isNowPlayingStageActive, playQueue, setPlayQueue, setStatusMsg, t, userId]);
-
-    /*
-     * 切**进**随机播放时把队列打乱一遍。
-     *
-     * 随机模式不是另存一份顺序表，而是真的把队列重排（见 utils/playbackShuffle.ts），
-     * 所以这一步不做的话「随机」只是照着原来的顺序播下去 —— 看起来完全没生效。
-     *
-     * 只在**模式从别的档切过来**的那一刻洗一次：队列后面怎么变（加歌、删歌）都不再重洗，
-     * 否则每次编辑队列顺序都会跳一下。重洗的另一条路是走到队尾，见 handleNextTrack。
-     */
-    const previousLoopModeRef = useRef(loopMode);
-    useEffect(() => {
-        const previousLoopMode = previousLoopModeRef.current;
-        previousLoopModeRef.current = loopMode;
-        if (loopMode !== 'shuffle' || previousLoopMode === 'shuffle') return;
-        if (isNowPlayingStageActive || playQueue.length <= 1) return;
-
-        const nextQueue = buildShuffledQueue(playQueue, currentSong ? getPlaybackSongKey(currentSong) : null);
-        setPlayQueue(nextQueue);
-        if (currentSong && nextQueue.length > 1) {
-            invalidateAndRefetch(currentSong, nextQueue, audioQuality, userId);
-        }
-    }, [audioQuality, currentSong, isNowPlayingStageActive, loopMode, playQueue, setPlayQueue, userId]);
 
     const clearQueue = useCallback(() => {
         if (isNowPlayingStageActive) return;

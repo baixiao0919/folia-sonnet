@@ -1,4 +1,4 @@
-import type { SongSortDirection, SongSortField } from '../utils/songSorting';
+import type { LocalSongFolderSortDirection, LocalSongFolderSortField } from '../utils/localSongSorting';
 
 // src/types/gridCommandSurface.ts
 // What the command palette is allowed to ask of the track grid currently on screen.
@@ -11,17 +11,8 @@ import type { SongSortDirection, SongSortField } from '../utils/songSorting';
 export type GridSurfaceActionId =
     | 'play-filtered'
     | 'enqueue-filtered'
-    | 'sort-newest'
-    | 'sort-oldest'
-    | 'sort-title'
-    | 'sort-artist'
-    | 'sort-liked-desc'
-    | 'sort-liked-asc'
-    | 'sort-play-count-desc'
-    | 'sort-play-count-asc'
-    | 'sort-default'
     | 'sort-file-name'
-    | 'sort-file-modified'
+    | 'sort-modified-date'
     | 'sort-album-track'
     | 'sort-toggle-direction'
     | 'toggle-info-panel'
@@ -46,8 +37,8 @@ export type GridSurfaceState = {
     /** How many songs `play-filtered` / `enqueue-filtered` would act on right now. */
     filteredTrackCount: number;
     isFilterActive: boolean;
-    sortField: SongSortField;
-    sortDirection: SongSortDirection;
+    sortField: LocalSongFolderSortField;
+    sortDirection: LocalSongFolderSortDirection;
     isInfoPanelOpen: boolean;
     isTrackListOpen: boolean;
     isEditMode: boolean;

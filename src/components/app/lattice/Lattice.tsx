@@ -12,7 +12,6 @@ import WallBackButton from '../../wall/WallBackButton';
 import { buildLatticeTiles, type LatticeTile } from './latticeModel';
 import { useStableCallbacks } from '../../../hooks/useStableCallbacks';
 import { useLatticeSettingsStore } from '../../../stores/useLatticeSettingsStore';
-import { useVisualizerSettingsStore } from '../../../stores/useVisualizerSettingsStore';
 import { useAppViewStore } from '../../../stores/useAppViewStore';
 import { countRender } from '../../../dev/renderCount';
 import '../../wall/wall.css';
@@ -28,7 +27,6 @@ import { useReducedMotionFor } from '../../../hooks/useReducedMotionFor';
 import { isFlightBackArmed, planPageFromWall } from './wallFlight';
 import { beginWallTrip, WallTripLog } from './wallTripLog';
 import { LATTICE_WALL_ATTR } from '../../collectionFlight';
-import { Button } from '@/components/ui';
 
 // The wall's display layer. It renders the play queue and never mutates it; opened from the
 // explore tab (`latticeSource` in useAppViewStore) it renders the explore page's entries in the
@@ -40,6 +38,7 @@ type LatticeProps = {
     controls: LatticePlaybackActions;
     lyrics: LyricData | null;
     lyricSource: LatticeLyricSource;
+    lyricKeywordColoringEnabled: boolean;
     currentSong: SongResult | null;
     playerState: PlayerState;
     currentTime: MotionValue<number>;
@@ -67,6 +66,7 @@ export default function Lattice({
     controls,
     lyrics,
     lyricSource,
+    lyricKeywordColoringEnabled,
     currentSong,
     playerState,
     currentTime,
@@ -87,8 +87,6 @@ export default function Lattice({
 }: LatticeProps) {
     countRender('Lattice');
     const { t } = useTranslation();
-    // 关键词着色走全局开关（useVisualizerSettingsStore）——曾看莫奈的 tuning，已被收编。
-    const keywordColoringEnabled = useVisualizerSettingsStore(state => state.keywordColoringEnabled);
     const vignette = useLatticeSettingsStore(state => state.latticeVignette);
     const lightsOn = useLatticeSettingsStore(state => state.latticeLightsOn);
     const posterTintEnabled = useLatticeSettingsStore(state => state.latticePosterTintEnabled);
@@ -192,7 +190,7 @@ export default function Lattice({
         <LatticePlaybackProvider actions={controls} currentSong={currentSong} queue={queue} lyrics={lyrics}
             currentTime={currentTime} lyricCurrentTime={lyricCurrentTime} duration={playbackDuration} onSeek={onSeek} isDaylight={isDaylight}>
         <LatticeLyricsProvider source={lyricSource} songKey={currentSong ? getPlaybackSongKey(currentSong) : ''}
-            keywordColoringEnabled={keywordColoringEnabled}>
+            keywordColoringEnabled={lyricKeywordColoringEnabled}>
         <section
             className={`lattice-root lattice-queue-root ${isDaylight ? 'is-daylight' : ''} ${vignette ? 'has-vignette' : ''} ${lightsOn ? '' : 'is-lights-out'} ${posterTintEnabled ? 'has-poster-tint' : ''} ${posterTintUseCustomColor ? 'uses-custom-poster-tint' : ''} ${surfaceOff ? 'is-handoff-surface-off' : ''} ${fadesIn && !reducedMotion ? 'is-returning' : ''}`}
             data-wall-handoff={handoffRole ?? undefined}
@@ -233,9 +231,9 @@ export default function Lattice({
                     data-glass data-glass-light data-glass-jelly
                     onMouseDown={event => event.preventDefault()}
                     onClick={() => { if (explore.canRefresh) explore.refresh(); }}
-                    aria-label={t('home.exploreRefresh')} tip={t('home.exploreRefresh')}>
+                    aria-label={t('home.exploreRefresh')} title={t('home.exploreRefresh')}>
                     <RefreshCw size={18} className={explore.isRefreshing ? 'animate-spin' : ''} />
-                </Button>
+                </button>
             )}
             {tiles.length === 0 && (isExplore ? explore.emptyText && (
                 <div className="lattice-empty">

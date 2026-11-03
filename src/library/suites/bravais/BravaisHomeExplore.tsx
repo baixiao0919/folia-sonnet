@@ -97,19 +97,7 @@ const BravaisHomeExplore: React.FC<{
     const onOpenItem = useCallback((itemKey: string) => {
         const { tiles, onOpenGridView: open, providerId: provider } = latest.current;
         const tile = tiles.find(candidate => candidate.id === itemKey);
-        // 探索墙打开集合的入口：先记「找到了没有」，再记交给宿主的集合类型。
-        noteLibraryStep('explore', 'b:open-item', {
-            itemKey: String(itemKey).slice(0, 80),
-            found: Boolean(tile),
-            tileKind: tile ? String(tile.kind) : '',
-        });
-        if (tile?.kind === 'collection') {
-            noteLibraryStep('explore', 'b:open-grid', {
-                type: String(tile.collection.type),
-                id: String(tile.collection.id).slice(0, 40),
-            });
-            open(createOnlineGridViewCollection(tile.collection, provider));
-        }
+        if (tile?.kind === 'collection') open(createOnlineGridViewCollection(tile.collection, provider));
     }, []);
     const onPlayItem = useCallback((itemKey: string) => {
         const { tiles, onPlaySong: play } = latest.current;
@@ -125,16 +113,12 @@ const BravaisHomeExplore: React.FC<{
             // 无账户的平台：与网格对同一状态的说法相同（OnlineProviderAccountlessPanel 的标题）。
             : online.accountView === 'accountless'
                 ? t('home.accountlessTitle', { provider: online.providerLabel })
-                // 读失败了要说失败：以前这一路只分「还在读」和「空页」，error 落进后者，
-                // 于是接口一挂探索页就显示「空的」，看着像这家平台没有内容 —— 缝里那个
-                // 「换一批」才是重试，可文案根本没提示可以重试。
-                : items.length > 0
-                    ? undefined
-                    : !feed || feed.status === 'loading'
-                        ? t('playlist.loading')
-                        : feed.status === 'error'
-                            ? t('home.exploreFailed')
-                            : wall.emptyText ?? t('home.exploreEmpty');
+                // 平台这一页的状态：墙上只有本机的两组时也要说（和网格探索页在两组下面说一样），空页只在墙上什么也没有时说。
+                : !feed || feed.status === 'loading'
+                    ? t('playlist.loading')
+                    : feed.status === 'error'
+                        ? t('home.exploreFailed')
+                        : items.length > 0 ? undefined : t('home.exploreEmpty');
     const refreshTool = useMemo<BravaisHomeTool | null>(() => (isOn ? {
         id: 'refresh-explore',
         label: t('home.exploreRefresh'),
@@ -162,20 +146,6 @@ const BravaisHomeExplore: React.FC<{
             account: accountSeam,
         },
     }), [accountSeam, chrome.onSelectTab, chrome.scan, chrome.search, chrome.tabs, chrome.title, online.providerLabel, status, t, tools]);
-    // 诊断：探索墙到底拿到了多少条目（墙空 = 白框、点了没反应，这份留痕能直接看出来）。
-    useEffect(() => {
-        noteLibraryStep('explore', 'b:layer', {
-            isOn,
-            accountView: online.accountView,
-            canUseExplore: online.canUseExplore,
-            feedStatus: feed ? feed.status : 'none',
-            feedSections: feed ? feed.sections.length : 0,
-            tiles: wall.tiles.length,
-            items: items.length,
-            wallSections: wall.sections.length,
-            emptyText: wall.emptyText ?? '',
-        });
-    }, [isOn, online.accountView, online.canUseExplore, feed, wall.tiles.length, wall.sections.length, items.length, wall.emptyText]);
     const localTab = availableLocalTabLabel(chrome.tabs);
     const { accountView, needsRelogin, providerLabel } = online;
     const wallHint = useMemo(

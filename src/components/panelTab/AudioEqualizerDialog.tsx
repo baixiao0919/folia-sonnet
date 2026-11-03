@@ -15,28 +15,22 @@ import { createNeutralAudioEffects, type AudioEffectId, type AudioEffectSettings
 import { resolveHeardAudioEqualizerSettings } from '../../utils/audioEqualizerModCurve';
 import Sheet from '../shared/Sheet';
 import { Toggle } from '../modal/settings/kit';
+import AudioEffectGrid from './equalizer/AudioEffectGrid';
+import EqualizerBandGrid from './equalizer/EqualizerBandGrid';
+import PresetChips from './equalizer/PresetChips';
 import ModCurveNotice from './equalizer/ModCurveNotice';
 import HifiBypassNotice from '../hifi/HifiBypassNotice';
 import { useIsHifiRoute } from '../hifi/useHifiSignalPath';
 import { useAudioSettingsStore } from '../../stores/useAudioSettingsStore';
-import { useAudioProfilesStore } from '../../stores/useAudioProfilesStore';
 
 // src/components/panelTab/AudioEqualizerDialog.tsx
-// 调音台窗口：从控制页打开的那扇「音频效果」。
-//
-// 从一页变成五页（均衡器 / 压缩器 / 空间混响 / 后置均衡器 / 染色），因为声音的处理已经不在
-// Web Audio 里跑了 —— 原生的 ExoPlayer 一次能做的事比一个 `<audio>` 多得多，
-// 界面得跟得上。五页共用同一颗总开关：关掉它，整条链（含压缩、混响与染色）一起让路。
-//
-// 均衡器那一页的数据仍归 useAudioSettingsStore（十段增益、预设、自定义槽位、mod 曲线），
-// 其余四页归 useAudioConsoleStore。这一层只管草稿与落盘时机：
-// 拖的时候只改草稿，松手才写 store —— 与原来那扇窗口的规矩一样。
+// The audio effect window opened from the controls tab, on the app's sheet: the processing switch
+// in the header, then the presets, the ten EQ bands and the effect chain. It owns the draft that
+// the parts edit and writes it to the store when an edit is let go.
 
 type AudioEqualizerDialogProps = {
     isDaylight: boolean;
 };
-
-type ConsoleTabId = 'equalizer' | 'compressor' | 'reverb' | 'postEq' | 'saturation';
 
 const PRESET_IDS: AudioEqualizerModeId[] = [...AUDIO_SOUND_PRESET_IDS, ...AUDIO_EQUALIZER_CUSTOM_SLOT_IDS];
 
@@ -47,7 +41,6 @@ const AudioEqualizerDialog: React.FC<AudioEqualizerDialogProps> = ({ isDaylight 
     const modCurveSuspended = useAudioSettingsStore(state => state.audioEqualizerModCurveSuspended);
     const isOpen = useAudioSettingsStore(state => state.isAudioEqualizerOpen);
     const close = useAudioSettingsStore(state => state.closeAudioEqualizer);
-    const syncActiveProfile = useAudioProfilesStore(state => state.syncActive);
     const commitSettings = useAudioSettingsStore(state => state.handleSetAudioEqualizerSettings);
     const commitEnabled = useAudioSettingsStore(state => state.handleSetAudioEqualizerEnabled);
     // What is heard: the listener's own settings, with a mod's curve over the gains while it plays (Folium 1.7).
@@ -79,12 +72,6 @@ const AudioEqualizerDialog: React.FC<AudioEqualizerDialogProps> = ({ isDaylight 
             });
         }
     }, [isOpen, settings]);
-
-    // 只在窗口打开的那一下回到均衡器那一页。不能跟着 settings 一起跑：切换耳机方案会
-    // 更新 settings，若在这里重置页签，人在压缩页切方案就会被弹回均衡页。
-    useEffect(() => {
-        if (isOpen) setTab('equalizer');
-    }, [isOpen]);
 
     /*
      * The window is drawn only while the controls tab is up, and the tab can be switched away under it (a
@@ -195,11 +182,11 @@ const AudioEqualizerDialog: React.FC<AudioEqualizerDialogProps> = ({ isDaylight 
     return (
         <Sheet
             isOpen={isOpen}
-            onClose={closeWindow}
+            onClose={close}
             isDaylight={isDaylight}
             size="l"
-            title={t('ui.consoleTitle')}
-            subtitle={t('ui.consoleDescription')}
+            title={t('ui.equalizerTitle')}
+            subtitle={t('ui.equalizerDescription')}
             headerActions={(
                 // The switch takes its name from the label it sits in. A narrow window has no room for the words: they stay for a screen reader.
                 <label className="flex cursor-pointer items-center gap-3">
@@ -210,8 +197,7 @@ const AudioEqualizerDialog: React.FC<AudioEqualizerDialogProps> = ({ isDaylight 
                 </label>
             )}
         >
-            {/* 这一层排窗口里的内容（至少和窗口一样高，多出的高度给推子），也让这扇对话框自己能被思索命中。
-                标记仍叫 audio-equalizer：思索（ponder）的悬停目标按这个名字找，改名会让引导指不到窗口。 */}
+            {/* 这一层排窗口里的内容（至少和窗口一样高，多出的高度给推子），也让这扇对话框自己能被思索命中。 */}
             <div data-ponder="audio-equalizer" className="flex min-h-full flex-col">
                 <HifiBypassNotice />
                 <ModCurveNotice />
@@ -228,26 +214,6 @@ const AudioEqualizerDialog: React.FC<AudioEqualizerDialogProps> = ({ isDaylight 
                     <EqualizerBandGrid gains={draft.gains} onBandChange={updateBandDraft} onCommit={commitDraft} readOnly={readOnly} />
                     <AudioEffectGrid effects={draft.effects} onEffectChange={updateEffectDraft} onCommit={commitDraft} readOnly={readOnly} />
                 </div>
-
-                {tab === 'equalizer' && <ModCurveNotice />}
-
-                {tab === 'equalizer' && (
-                    <EqualizerPane
-                        draft={draft}
-                        curveHeard={curveHeard}
-                        presetIds={PRESET_IDS}
-                        onChoosePreset={applyPreset}
-                        canReset={!curveHeard && isAudioEqualizerCustomSlotId(draft.preset)}
-                        onReset={resetActiveCustomSlot}
-                        onBandChange={updateBandDraft}
-                        onEffectChange={updateEffectDraft}
-                        onCommit={commitDraft}
-                    />
-                )}
-                {tab === 'compressor' && <CompressorPane />}
-                {tab === 'reverb' && <ReverbPane />}
-                {tab === 'postEq' && <PostEqPane />}
-                {tab === 'saturation' && <SaturationPane />}
             </div>
         </Sheet>
     );

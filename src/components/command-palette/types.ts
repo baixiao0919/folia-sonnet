@@ -2,7 +2,6 @@ import type React from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { SearchKind, SearchReturnView, SearchSource } from '../../stores/useSearchNavigationStore';
 import type { LocalLibraryDisplayCatalog } from '../../services/playbackAdapters';
-import type { NebbiaBehind, NebbiaGlass } from '../visualizer/nebbia/types';
 import type { HomeViewTab, LatentBackgroundTuning, LocalSong, LyricData, PlayerState, ReplayGainMode, SongResult, StatusMessage, SubtitleContentMode, VisualizerMode, VisualizerBackgroundMode, MonetBackgroundTuning, SmartBeatMode } from '../../types';
 import type { LyricSegmentationRecord, LyricSegmentationSource } from '../../types/lyricSegmentation';
 import type { AppLanguagePreference } from '../../i18n/config';
@@ -13,7 +12,7 @@ import type { LibraryDirectorySurfaceHandle } from '../../library/core/directory
 import type { LibraryArtistSurfaceHandle } from '../../library/core/artist/artist.contract';
 import type { LibrarySuiteChromeHandle } from '../../library/core/suite/suiteChrome.contract';
 import { type SettingsModalInitialTab, type SettingsSubviewId, type VisualizerSettingsSection } from '../../stores/useSettingsModalStore';
-import type { SettingsAnchorId } from '../../utils/settingsAnchorModel';
+import type { SettingsAnchorId } from '../modal/settings/navigation/settingsAnchorModel';
 import type { LyricStaffAbsorbMode, LyricStaffPolicy } from '../../utils/lyrics/staffCreditsPolicy';
 import type { AudioEqualizerModeId } from '../../utils/audioEqualizer';
 import type { ThemeGenerationSource } from '../../services/themePreferences';
@@ -344,8 +343,6 @@ export type CommandPaletteSettingsContext = {
     togglePlaybackFade: () => void;
     /** Whether restricted songs and unknown failures count down to a skip, like taken-down ones. */
     toggleAutoSkipUnplayable: () => void;
-    /** Whether an unplayable song in the background is skipped without waiting for the foreground (Android). */
-    toggleBackgroundSilentSkip: () => void;
     /**
      * Whether this build can watch the imported local folders at all. A getter because the answer
      * is a runtime API check (FileSystemObserver) rather than a stored value, and the settings
@@ -393,15 +390,6 @@ export type CommandPaletteSettingsContext = {
     sleepTimerMinutes: number;
     setSleepTimerMinutes: (minutes: number) => void;
     sleepTimerDeadlineMs: number | null;
-    /** 到点之后干什么。控制面板那一行现在能选，命令面板只按它显示提示语。 */
-    sleepTimerEndAction: 'pause' | 'quit';
-    /**
-     * 把定时方式挪回「分钟后」。
-     *
-     * 控制面板里可以把方式切成「小时」或「定时（几点）」，那时这两边的 hours / minutes
-     * 不再驱动倒计时；命令面板一改时长就把方式拉回来，最后一次改动为准，不会互相打架。
-     */
-    setSleepTimerMinutesMode: () => void;
     canGenerateAITheme: boolean;
     isGeneratingTheme: boolean;
     generateAITheme: () => void;
@@ -487,14 +475,9 @@ export type CommandPaletteVisualizerContext = {
     toggleRandomVisualizerModePerSong: () => void;
     /** Lab > Fix lyric animation freeze on Linux: the Linux renderer fd leak workaround. */
     toggleGlowBlurQuantize: () => void;
-    /** Performance & Background > render resolution: caps how many device pixels canvases draw. */
-    toggleRenderPixelRatio: () => void;
     setVisualizerBackgroundMode: (mode: VisualizerBackgroundMode) => void;
     setMonetBackgroundTuning: (patch: Partial<MonetBackgroundTuning>) => void;
     setLatentBackgroundTuning: (patch: Partial<LatentBackgroundTuning>) => void;
-    /** 雾笺: the next window scene (the front glass changes to that scene's usual pair, as in its settings) and the next front glass; each returns what it switched to. */
-    cycleNebbiaBehind: () => NebbiaBehind;
-    cycleNebbiaGlass: () => NebbiaGlass;
     /** The built-in video layer behind the lyrics. */
     toggleVideoLayer: () => void;
     /** 智能动感模式 (the beat FX in every mode and background that draws them): off, stored results only, or on. */

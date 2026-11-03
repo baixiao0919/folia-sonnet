@@ -133,10 +133,6 @@ const sessionOf = (providerId: string, patch: Partial<LibraryLoginSessionSnapsho
     failure: null,
     selfCheck: null,
     localService: providerId === 'netease' ? SERVICE_UP : { available: false, failed: false, error: null, restarting: false },
-    // 密码登录（飞牛这类）在探针里不演示：表单为空，后端也未起，文案用与真实 controller 一致的默认键。
-    passwordForm: null,
-    backend: { failed: false, detail: null, restarting: false, canRestart: false },
-    copy: { title: { key: 'home.loginTitle' }, note: { key: 'home.loginNote' }, status: null },
     texts: null,
     ...patch,
 });
@@ -262,8 +258,6 @@ function LoginWindowProbe(props: ProbeProps) {
                     chosen={view.chosen}
                     login={view.login}
                     buildReport={async () => '### Folia QR login diagnostics (a sample made by the probe)'}
-                    // 密码登录（飞牛）：探针里只记一句，不真的去登。
-                    onSubmitPassword={credentials => setSaid(`password for ${credentials.username}`)}
                     onChoose={providerId => {
                         setSaid(`chosen ${providerId}`);
                         const picked = rows.find(entry => entry.providerId === providerId);

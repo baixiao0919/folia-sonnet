@@ -17,7 +17,6 @@ type NewFeaturesRelease = {
 };
 
 // Defines the current release's cards; their localized text lives under i18nKey in every locale.
-// 与上游 v0.7.22 一致：六张。花火（含它需要的智能动感模式）曾被 60b70efc 砍掉，现已按用户要求恢复。
 export const NEW_FEATURES_RELEASE: NewFeaturesRelease = {
     i18nKey: 'releaseNotes.v0_7_25',
     majorUpdate: { codename: 'Rainy', servicePack: 1 },

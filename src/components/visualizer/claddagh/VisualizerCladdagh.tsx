@@ -7,13 +7,12 @@ import { buildLineGraphemeTimeline } from '../../../utils/lyrics/graphemeTiming'
 import { resolveThemeFontStack, resolveThemeFontWeight } from '../../../utils/fontStacks';
 import { type VisualizerSharedProps } from '../definition';
 import { useVisualizerRuntime } from '../runtime';
-import { colorWithAlpha, mixColors } from '../../../utils/visualizer/colorMix';
+import { colorWithAlpha, mixColors } from '../colorMix';
 import VisualizerShell from '../VisualizerShell';
 import VisualizerSubtitleOverlay from '../VisualizerSubtitleOverlay';
 import { adjustCladdaghTimeline } from './claddaghTimeline';
 import { buildMeasuredSpacingInfo } from './claddaghLayout';
 import { RingLine } from './CladdaghRingLine';
-import { isLyricFlat } from '../../../utils/lyricFlat';
 
 // src/components/visualizer/claddagh/VisualizerCladdagh.tsx
 
@@ -129,8 +128,7 @@ const VisualizerCladdagh: React.FC<VisualizerSharedProps> = (props) => {
             }
 
             const glowIntensity = glowIntensityRef.current;
-            // 扁平化时不给光（这里每帧都在重写内联 filter，靠 CSS 抢优先级不如源头不给）。
-            if (glowIntensity > 0.001 && !isLyricFlat()) {
+            if (glowIntensity > 0.001) {
                 const glowSize = (4 + bassPower * 12) * glowIntensity;
                 const glowColor = colorWithAlpha(mixed, glowIntensity);
                 lineEl.style.filter = `drop-shadow(0 0 ${glowSize.toFixed(1)}px ${glowColor})`;

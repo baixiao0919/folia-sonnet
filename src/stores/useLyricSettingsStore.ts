@@ -9,11 +9,10 @@ import { create } from 'zustand';
 import { getLyricStaffPatternError } from '../utils/lyrics/staffCredits';
 import { legacyLyricFilterSetting, readLyricLineRules, storedLyricLineRules, type LyricLineRule } from '../utils/lyrics/lyricLineRules';
 import i18n from '../i18n/config';
-import { type LocalLyricsPriority, type LyricProviderSource, type LyricSourcePreference } from '../types';
-import { getLyricSourcePreferenceLabel } from '../utils/lyrics/lyricSourceLabels';
+import { type LocalLyricsPriority, type LyricProviderSource } from '../types';
+import { getLyricProviderPreferenceLabel } from '../utils/lyrics/lyricSourceLabels';
 import { normalizeLocalLyricFormatOrder, type LocalLyricFileFormat } from '../utils/lyrics/localLyricFormatOrder';
-import { isLyricProviderSource } from '../utils/lyrics/lyricSources';
-import { DEFAULT_LOCAL_LYRIC_SOURCE, DEFAULT_PREFERRED_LYRIC_SOURCE, migratePreferredLyricSource } from '../utils/lyrics/sourcePriority';
+import { DEFAULT_PREFERRED_LYRIC_SOURCE, migratePreferredLyricSource } from '../utils/lyrics/sourcePriority';
 import { DEFAULT_LYRIC_STAFF_ABSORB_MODE, DEFAULT_LYRIC_STAFF_MIN_DWELL_SECONDS, DEFAULT_LYRIC_STAFF_POLICY, LYRIC_STAFF_MIN_DWELL_RANGE, type LyricStaffAbsorbMode, type LyricStaffPolicy } from '../utils/lyrics/staffCreditsPolicy';
 import { getStoredBoolean, getStoredString, removeStoredKey, setStoredBoolean, setStoredString } from './storagePrimitives';
 import { setStatusMessage } from './useStatusMessageStore';
@@ -62,16 +61,7 @@ const readStoredLocalLyricFormatOrder = (): LocalLyricFileFormat[] => {
     }
 };
 
-export const LOCAL_LYRIC_PROVIDER_SOURCE_STORAGE_KEY = 'local_lyric_provider_source';
-
-// 本地文件 / Navidrome 这类没有平台来源的歌用这一项；也是「跟随播放平台来源」解析不出来时的退路。
-const readStoredLocalLyricProviderSource = (): LyricProviderSource => {
-    if (typeof window === 'undefined') return DEFAULT_LOCAL_LYRIC_SOURCE;
-    const saved = localStorage.getItem(LOCAL_LYRIC_PROVIDER_SOURCE_STORAGE_KEY);
-    return isLyricProviderSource(saved) ? saved : DEFAULT_LOCAL_LYRIC_SOURCE;
-};
-
-const readStoredPreferredAlternativeLyricSource = (): LyricSourcePreference => {
+const readStoredPreferredAlternativeLyricSource = (): LyricProviderSource => {
     if (typeof window === 'undefined') return DEFAULT_PREFERRED_LYRIC_SOURCE;
     const versioned = localStorage.getItem(PREFERRED_LYRIC_SOURCE_STORAGE_KEY_V2);
     const legacy = localStorage.getItem('preferred_alternative_lyric_source');
@@ -133,8 +123,7 @@ const readStoredLyricStaffAbsorbMode = (): LyricStaffAbsorbMode => {
 
 export type LyricSettingsState = {
     autoUseBestLyric: boolean;
-    preferredAlternativeLyricSource: LyricSourcePreference;
-    localLyricProviderSource: LyricProviderSource;
+    preferredAlternativeLyricSource: LyricProviderSource;
     localLyricsPriority: LocalLyricsPriority;
     localLyricFormatOrder: LocalLyricFileFormat[];
     globalLyricTimelineOffsetMs: number;
@@ -145,8 +134,7 @@ export type LyricSettingsState = {
     lyricStaffAbsorbMode: LyricStaffAbsorbMode;
     lyricStaffPattern: string;
     handleToggleAutoUseBestLyric: (enable: boolean) => void;
-    handleSetPreferredAlternativeLyricSource: (source: LyricSourcePreference) => void;
-    handleSetLocalLyricProviderSource: (source: LyricProviderSource) => void;
+    handleSetPreferredAlternativeLyricSource: (source: LyricProviderSource) => void;
     handleSetLocalLyricsPriority: (priority: LocalLyricsPriority) => void;
     handleSetLocalLyricFormatOrder: (order: LocalLyricFileFormat[]) => void;
     handleSetGlobalLyricTimelineOffsetMs: (offsetMs: number) => void;
@@ -160,7 +148,6 @@ export type LyricSettingsState = {
 export const useLyricSettingsStore = create<LyricSettingsState>((set, get) => ({
     autoUseBestLyric: getStoredBoolean('auto_use_best_lyric', true),
     preferredAlternativeLyricSource: readStoredPreferredAlternativeLyricSource(),
-    localLyricProviderSource: readStoredLocalLyricProviderSource(),
     localLyricsPriority: readStoredLocalLyricsPriority(),
     localLyricFormatOrder: readStoredLocalLyricFormatOrder(),
     globalLyricTimelineOffsetMs: readStoredGlobalLyricTimelineOffsetMs(),
@@ -184,17 +171,7 @@ export const useLyricSettingsStore = create<LyricSettingsState>((set, get) => ({
         set({ preferredAlternativeLyricSource: source });
         setStatusMessage({
             type: 'info',
-            text: i18n.t('notifications.lyricSourceChanged', { source: getLyricSourcePreferenceLabel(source) }),
-        });
-    },
-    handleSetLocalLyricProviderSource: (source) => {
-        if (typeof window !== 'undefined') {
-            localStorage.setItem(LOCAL_LYRIC_PROVIDER_SOURCE_STORAGE_KEY, source);
-        }
-        set({ localLyricProviderSource: source });
-        setStatusMessage({
-            type: 'info',
-            text: i18n.t('notifications.lyricSourceChanged', { source: getLyricSourcePreferenceLabel(source) }),
+            text: i18n.t('notifications.lyricSourceChanged', { source: getLyricProviderPreferenceLabel(source) }),
         });
     },
     handleSetLocalLyricsPriority: (priority) => {
@@ -280,7 +257,6 @@ export const useLyricSettingsStore = create<LyricSettingsState>((set, get) => ({
 export const selectLyricSettingsSnapshot = (state: LyricSettingsState) => ({
     autoUseBestLyric: state.autoUseBestLyric,
     preferredAlternativeLyricSource: state.preferredAlternativeLyricSource,
-    localLyricProviderSource: state.localLyricProviderSource,
     localLyricsPriority: state.localLyricsPriority,
     localLyricFormatOrder: state.localLyricFormatOrder,
     globalLyricTimelineOffsetMs: state.globalLyricTimelineOffsetMs,
@@ -291,7 +267,6 @@ export const selectLyricSettingsSnapshot = (state: LyricSettingsState) => ({
     lyricStaffPattern: state.lyricStaffPattern,
     handleToggleAutoUseBestLyric: state.handleToggleAutoUseBestLyric,
     handleSetPreferredAlternativeLyricSource: state.handleSetPreferredAlternativeLyricSource,
-    handleSetLocalLyricProviderSource: state.handleSetLocalLyricProviderSource,
     handleSetLocalLyricsPriority: state.handleSetLocalLyricsPriority,
     handleSetLocalLyricFormatOrder: state.handleSetLocalLyricFormatOrder,
     handleSetGlobalLyricTimelineOffsetMs: state.handleSetGlobalLyricTimelineOffsetMs,

@@ -1,16 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { generateThemeFromLyrics, isMissingAiApiKeyError } from '../services/gemini';
-import { notifyStageResolved } from '../services/aiStage';
-import {
-    type AiThemeSongRef,
-    pullAiThemeFromCloud,
-    pullCachedThemeByKey,
-    writeLocalAiThemeOverride,
-    readLocalAiThemeOverride,
-} from '../services/aiThemeCloud';
+import { generateThemeFromLyrics, isMissingAiApiKeyError } from '../services/aiText';
 import { saveToCache } from '../services/db';
 import { DualTheme, LyricData, SongResult, StatusMessage, Theme, ThemeMode } from '../types';
-import { getLastDualTheme, getLastLegacyTheme, type ThemeCacheSongKey } from '../services/themeCache';
+import { getCachedThemeState, getCachedThemeStateForSong, getLastDualTheme, getLastLegacyTheme, type ThemeCacheSongKey } from '../services/themeCache';
 import { saveSyncedThemeForSong } from '../services/sync/syncRepository';
 import {
     applyStoredAnimationIntensityToDualTheme,
@@ -42,17 +34,14 @@ import {
     resolveBgModeTheme,
 } from './themeControllerState';
 import { getPlaybackSongKey } from '../utils/appPlaybackGuards';
-import { resolveSongPlatform } from '../utils/songPlatform';
-import { setStatusMessage as setStatusMsg } from '../stores/useStatusMessageStore';
 import { usePlaybackStore } from '../stores/usePlaybackStore';
+import { setStatusMessage as setStatusMsg } from '../stores/useStatusMessageStore';
 import { useStableCallbacks } from './useStableCallbacks';
 
 type StatusSetter = Dispatch<SetStateAction<StatusMessage | null>>;
 export type GenerateAIThemeOptions = {
     source?: 'manual' | 'auto';
     shouldApply?: () => boolean;
-    /** 「重新生成」：不看缓存重新问一次模型，结果覆盖掉云端已有的那条。 */
-    force?: boolean;
 };
 
 export type GenerateAIThemeResult =
@@ -69,28 +58,6 @@ const saveSyncedThemeWithoutBlocking = (...args: Parameters<typeof saveSyncedThe
     });
 };
 const CUSTOM_THEME_PREFERRED_KEY = 'custom_theme_preferred';
-
-/** 云端 / 本地那两层只认「歌名 + 歌手」，把 SongResult 折成它要的形状。 */
-/**
- * 当前这首歌的歌词正文 —— 只在**歌词确实是这首的**时候才给。
- *
- * 切歌那一刻歌词常常还没换过来：拿上一首的词去判这一首，会把明明合规的条目判成不合规
- * （凭空多一次生成）。宁可这一回不判（照旧信键），也不要拿错的歌词当凭据。
- */
-const readLyricTextFor = (song: SongResult | null): string => {
-    if (!song) return '';
-    const lyrics = usePlaybackStore.getState().lyrics;
-    if (!lyrics?.lines?.length) return '';
-    const lyricTitle = String(lyrics.title ?? '').trim();
-    const songTitle = String(song.name ?? '').trim();
-    if (lyricTitle && songTitle && lyricTitle !== songTitle) return '';
-    return lyrics.lines.map(line => line.fullText).join('\n').trim();
-};
-
-const songRefOf = (song: SongResult): AiThemeSongRef => ({
-    title: song?.name,
-    artist: song?.artists?.map(artist => artist.name).filter(Boolean).join('、'),
-});
 
 const sanitizeCustomTheme = (
     theme: Theme,
@@ -214,18 +181,6 @@ export function useThemeController({
     const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
     const activeThemeGenerationCountRef = useRef(0);
     const themeGenerationSongKeysRef = useRef(new Set<string>());
-    /*
-     * 「正在把这首歌的主题找回来」也要算在途（本地改过的那一版 / 云端那条键），
-     * 不只是「正在问模型」。
-     *
-     * 换歌那一刻主题是这样一层层落下来的：先翻本机改过的那版、再按云端键拉，
-     * 都没有才轮到自动生成（还隔着 650ms 那一拍）。中间任何一层落定都会改一次 theme，
-     * 而它们**都不经过 beginThemeGeneration** —— 只认 isGeneratingTheme 的话，
-     * 这一段是「静默」的：外表上主题已经落定，其实等会儿还要再变一次。
-     * 叠层那边一次换主题就是一次重画（闪一下），所以要在外面看得见这段在途。
-     */
-    const [isThemeRestoring, setIsThemeRestoring] = useState(false);
-    const activeThemeRestoreCountRef = useRef(0);
 
     const themeSourceModel = useMemo(() => buildThemeSourceModel({
         bgMode,
@@ -262,16 +217,6 @@ export function useThemeController({
     const endThemeGeneration = () => {
         activeThemeGenerationCountRef.current = Math.max(0, activeThemeGenerationCountRef.current - 1);
         setIsGeneratingTheme(activeThemeGenerationCountRef.current > 0);
-    };
-
-    const beginThemeRestore = () => {
-        activeThemeRestoreCountRef.current += 1;
-        setIsThemeRestoring(true);
-    };
-
-    const endThemeRestore = () => {
-        activeThemeRestoreCountRef.current = Math.max(0, activeThemeRestoreCountRef.current - 1);
-        setIsThemeRestoring(activeThemeRestoreCountRef.current > 0);
     };
 
     useEffect(() => {
@@ -473,17 +418,6 @@ export function useThemeController({
         if (songKey != null) {
             void saveToCache(`dual_theme_${songKey}`, sanitized);
         }
-        /*
-         * 「本机改过」这一份单独记一份（services/aiThemeCloud.ts）。
-         *
-         * 之后这首歌一律以它为准：云端那条还在，但不许反过来盖掉用户刚改的颜色
-         * —— 少了这一层，切走再切回来就会被云端的旧版本顶掉，改完像没改。
-         */
-        if (syncSong) {
-            void writeLocalAiThemeOverride(songRefOf(syncSong), sanitized);
-            // 面板那颗「恢复云端版本」靠它决定出不出来 —— 改完当场就该在。
-            setCurrentSongHasLocalAiTheme(true);
-        }
         if (syncSong) {
             saveSyncedThemeWithoutBlocking(syncSong, sanitized, 'edited');
         }
@@ -574,7 +508,7 @@ export function useThemeController({
         return 'restored' as const;
     };
 
-    const restoreCachedThemeForSongInner = async (
+    const restoreCachedThemeForSong = async (
         songOrId: ThemeCacheSongKey | SongResult,
         options?: { allowLastUsedFallback?: boolean; preserveCurrentOnMiss?: boolean }
     ) => {
@@ -585,56 +519,22 @@ export function useThemeController({
             return 'restored' as const;
         }
 
-        /*
-         * 先看**本机改过**那一版（services/aiThemeCloud.ts）：用户在快速编辑里改过的歌，
-         * 一律以本机为准，云端那条不许反过来盖掉它。
-         *
-         * 以前这里翻的是 `dual_theme_*` 那份全量本地缓存 —— 那份按用户要求删掉了
-         * （生成结果只存云端，见 services/aiStage.ts）；留下来的是「改过」这一份，
-         * 它不是缓存，是用户的编辑。
-         */
-        const localSong = typeof songOrId === 'object' && songOrId !== null ? songOrId : null;
-        if (localSong) {
-            const override = await readLocalAiThemeOverride(songRefOf(localSong));
-            if (override) {
-                applyDualTheme(override, { respectCustomPreference: false });
-                setCurrentSongHasLocalAiTheme(true);
-                return 'local-override' as const;
-            }
+        const cachedTheme = typeof songOrId === 'object'
+            ? await getCachedThemeStateForSong(songOrId)
+            : await getCachedThemeState(songOrId);
 
-            /*
-             * 从「AI 主题」那一屏点播放进来的：曲目上带着云端那条键 —— **直接用它**，
-             * 不再走生成。生成要有歌词、要有 API Key，而这条缓存存在的意义就是
-             * 不必再算一次；少了这一段，点播放就是「歌放起来了，主题一点没变」。
-             */
-            const cloudKey = localSong.aiCloudThemeKey;
-            if (cloudKey) {
-                /*
-                 * 带上歌词：这一路以前是**按已知键直取**，一道判定都不走 —— 舞台那条链路
-                 * 判住的脏条目，从「AI 主题」这一屏点播放照样能进来。
-                 */
-                const cached = await pullCachedThemeByKey(cloudKey, readLyricTextFor(localSong));
-                if (cached) {
-                    applyDualTheme(cached, { respectCustomPreference: false });
-                    return 'cloud-theme' as const;
-                }
-                /*
-                 * 键直取没中，再按**歌名 + 歌手**问一次。
-                 *
-                 * 那一屏的 key 是服务端按歌名 `GROUP BY` 里取 `MAX(cache_key)` 给的，它可能
-                 * 落在一条 stage 上而那条只有动画决策、没有主题那一半（或那条 payload 形状
-                 * 不合规）—— 于是「云端明明有这首歌，播下去主题一点没变」。
-                 *
-                 * 这一路现在是**强制匹配**（services/aiCloudCache）：歌名对得上就用，不再因为
-                 * 高亮词差几个字判成没有。所以它是这一屏点播放最后那道兜底：取不到才轮到生成。
-                 */
-                const byTitle = await pullAiThemeFromCloud(songRefOf(localSong), readLyricTextFor(localSong));
-                if (byTitle) {
-                    applyDualTheme(byTitle, { respectCustomPreference: false });
-                    return 'cloud-theme' as const;
-                }
-            }
+        if (cachedTheme.kind === 'dual') {
+            setCurrentSongHasLocalAiTheme(true);
+            applyDualTheme(cachedTheme.theme, { respectCustomPreference: false });
+            return 'dual' as const;
         }
+
+        if (cachedTheme.kind === 'legacy') {
+            setCurrentSongHasLocalAiTheme(true);
+            applyLegacyTheme(cachedTheme.theme, { respectCustomPreference: false });
+            return 'legacy' as const;
+        }
+
         setCurrentSongHasLocalAiTheme(false);
 
         if (options?.allowLastUsedFallback) {
@@ -657,26 +557,6 @@ export function useThemeController({
 
         applyThemeFallback();
         return 'none' as const;
-    };
-
-    /**
-     * 对外的那一层：把「找歌的过程」记成在途（beginThemeRestore / endThemeRestore）。
-     *
-     * 里面每一步都是异步的（读本机改过的那版、拉云端那条键、翻上次用过的），
-     * 而它们**都不碰 isGeneratingTheme** —— 不在这里记一笔的话，
-     * 外面看到的就是「换歌后主题已经定下来了」，跟着推一次，等它真落定时又要再推一次
-     * （叠层每换一次主题就要重画一次，也就是用户说的「闪两下」）。
-     */
-    const restoreCachedThemeForSong = async (
-        songOrId: ThemeCacheSongKey | SongResult,
-        options?: { allowLastUsedFallback?: boolean; preserveCurrentOnMiss?: boolean }
-    ) => {
-        beginThemeRestore();
-        try {
-            return await restoreCachedThemeForSongInner(songOrId, options);
-        } finally {
-            endThemeRestore();
-        }
     };
 
     // Cover-derived theme: the no-AI path. Shared by the "cover" generation source the user can
@@ -766,40 +646,9 @@ export function useThemeController({
                 return { status: 'skipped', reason: 'empty-prompt' };
             }
 
-            /*
-             * 走 services/gemini 那一版，不是 aiText 那一版。
-             *
-             * 两版同名：gemini 版经 requestStage 编排，先问云缓存、没有再生成、生成完回传
-             * （services/aiStage.ts → withAiCloudCache）；aiText 版只有三条直连的路，
-             * **完全不碰缓存**。上游合并把这里指到了 aiText，于是主题链路绕开云缓存：
-             * 不拉、不推，命中提示也再没出现过 —— 那就是「云缓存失效」。
-             */
-            const { theme: dualTheme, source: themeSource } = await generateThemeFromLyrics(promptText, {
+            const dualTheme = await generateThemeFromLyrics(promptText, {
                 isPureMusic,
                 songTitle: songTitle || undefined,
-                /*
-                 * 艺人信息只为了提示词更准，不参与缓存指纹（同一份歌词换个人唱
-                 * 也会是同一个答案，没必要多存一份）。
-                 */
-                artist: currentSong?.artists?.map(artist => artist.name).filter(Boolean).join('、') || undefined,
-                /*
-                 * 歌词行一起传进去：云缓存的指纹由「歌词正文 + 设置」算出，
-                 * 导演那条链路算的是同一个值，两边才会共用一条缓存。
-                 */
-                lines: lyrics?.lines ?? [],
-                trigger: source,
-                /*
-                 * 平台名只跟着上传走，服务端拿它去对应平台核对歌词；本地歌曲留空，
-                 * 服务端再按顺序逐个平台试。键仍然是那个 MD5。
-                 */
-                platform: resolveSongPlatform(currentSong),
-                /*
-                 * 手动点「生成 AI 主题」就是「我对现在这个不满意，再给一个」——
-                 * 所以不看缓存，直接重新问模型，生成完把云端那条**覆盖**掉。
-                 *
-                 * 自动触发（切歌）相反，必须走缓存：那正是云缓存要省掉的那次调用。
-                 */
-                force: options.force === true || source === 'manual',
             });
             const normalizedDualTheme = applyStoredAnimationIntensityToDualTheme(sanitizeDualTheme(dualTheme));
             if (currentSong) {
@@ -816,16 +665,13 @@ export function useThemeController({
             }
             applyDualTheme(normalizedDualTheme);
 
-            /*
-             * 一次生成，两种说法：这次真调了模型就说「主题生成成功」，下一个人撞上同一段
-             * 歌词时（source === 'cloud'）说「已从云端拉取缓存」。两条互斥 —— 命中那次
-             * 根本没走生成，不该报「生成成功」。
-             */
-            if (bgMode === 'custom' && customTheme) {
-                setStatusMsg({ type: 'success', text: t('notifications.aiThemeUpdatedCustomPreferred') });
-            } else {
-                notifyStageResolved(themeSource);
-            }
+            const selectedTheme = getSelectedDualTheme(normalizedDualTheme, isDaylight);
+            setStatusMsg({
+                type: 'success',
+                text: bgMode === 'custom' && customTheme
+                    ? t('notifications.aiThemeUpdatedCustomPreferred')
+                    : t('status.themeApplied', { themeName: selectedTheme.name }),
+            });
 
             return { status: 'generated', applied: true };
         } catch (error: unknown) {
@@ -894,13 +740,6 @@ export function useThemeController({
         themeGenerationSource,
         bgMode,
         isGeneratingTheme,
-        /**
-         * 「这首歌的主题还没落定」：正在把缓存找回来，或者正在问模型 / 拉云端。
-         *
-         * 只给外面**判断时机**用（比如叠层那一推要不要再等等），不是进度条 ——
-         * 它只说「还要变」，不说变成什么样。
-         */
-        themeSettling: isGeneratingTheme || isThemeRestoring,
         ...actions,
     };
 }

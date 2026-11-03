@@ -5,7 +5,6 @@ import { gridCommands } from './gridCommands';
 import { directoryCommands } from './directoryCommands';
 import { artistCommands } from './artistCommands';
 import { searchCommands } from './searchCommands';
-import { archiveCommands } from './archiveCommands';
 import { playbackCommands } from './playbackCommands';
 import { settingsCommands } from './settingsCommands';
 import { hifiCommands } from './hifiCommands';
@@ -13,7 +12,6 @@ import { navigationCommands } from './navigationCommands';
 import { panelCommands } from './panelCommands';
 import { modsCommands } from './modsCommands';
 import { visualizerCommands } from './visualizerCommands';
-import { aiDirectorCommands } from './aiDirectorCommands';
 
 // src/components/command-palette/commands/index.ts
 // The one place that decides cross-group ordering; each group file owns its internal order.
@@ -84,7 +82,6 @@ export const ALL_COMMAND_PALETTE_COMMANDS: CommandPaletteCommand[] = assertExecu
     ...directoryCommands,
     ...artistCommands,
     ...searchCommands,
-    ...archiveCommands,
     ...playbackCommands,
     ...settingsCommands,
     ...hifiCommands,
@@ -92,7 +89,6 @@ export const ALL_COMMAND_PALETTE_COMMANDS: CommandPaletteCommand[] = assertExecu
     ...panelCommands,
     ...modsCommands,
     ...visualizerCommands,
-    ...aiDirectorCommands,
 ])));
 
 export const OPEN_HOTKEY_INDEX = buildOpenHotkeyIndex(ALL_COMMAND_PALETTE_COMMANDS);

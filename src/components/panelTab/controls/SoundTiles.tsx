@@ -11,20 +11,10 @@ import { loopModeIcon, loopModeLabelName } from '../../shared/loopModeDisplay';
 import { QuickTile } from './QuickTile';
 
 // src/components/panelTab/controls/SoundTiles.tsx
-// 音量下面的三块：循环（名字就是当前状态）、智能过渡、音频效果器。
-// 第三块上游按 issue #107 删过，窗口只剩命令面板能开 —— 装着 App 的人翻遍控制页也找不到，
-// 现在挂回「音频过渡」这一排，跟它并排。
-//
-// 只在安卓原生运行时出现：那扇窗口的四页（均衡 / 压缩 / 混响 / 后置）每一档都跑在
-// ExoPlayer 的 AudioProcessor 里，浏览器和桌面端没有那条链，点开只会是一扇不起作用的窗口。
-
-const isAndroidNativeRuntime = (): boolean => (
-    typeof window !== 'undefined'
-    && (window as unknown as { Capacitor?: { getPlatform?: () => string } }).Capacitor?.getPlatform?.() === 'android'
-);
+// 音量下面的三块：循环（名字就是当前状态）、智能过渡、音频效果器（打开效果器窗口，处理开着时亮起）。
 
 interface SoundTilesProps {
-    loopMode: 'off' | 'all' | 'one' | 'shuffle';
+    loopMode: 'off' | 'all' | 'one';
     /** Receives the click so the handler can stop it from reaching the panel container. */
     onToggleLoop: (event?: React.MouseEvent) => void;
     loopToggleDisabled: boolean;
@@ -32,15 +22,16 @@ interface SoundTilesProps {
 
 const SoundTiles: React.FC<SoundTilesProps> = ({ loopMode, onToggleLoop, loopToggleDisabled }) => {
     const { t } = useTranslation();
+    const isEqualizerOn = useAudioSettingsStore(state => state.audioEqualizerSettings.enabled);
+    const openAudioEqualizer = useAudioSettingsStore(state => state.openAudioEqualizer);
     const automixEnabled = useAutomixSettingsStore(state => state.automixEnabled);
     const toggleAutomix = useAutomixSettingsStore(state => state.handleToggleAutomix);
     // 不在 HiFi 路线上时为 null。HiFi 上智能过渡和效果器都被绕过，两块换成一块打开信号链路面板的格子。
     const hifiSignalPath = useHifiSignalPath();
     const LoopIcon = loopModeIcon(loopMode);
-    const showConsole = isAndroidNativeRuntime();
 
     return (
-        <div className={`mt-2 grid gap-2 ${showConsole ? 'grid-cols-3' : 'grid-cols-2'}`}>
+        <div className="mt-2 grid grid-cols-3 gap-2">
             <QuickTile
                 kind="toggle"
                 icon={<LoopIcon size={18} />}

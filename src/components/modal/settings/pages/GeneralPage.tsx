@@ -7,17 +7,31 @@ import { useAudioSettingsStore } from '../../../../stores/useAudioSettingsStore'
 import { usePlayerChromeSettingsStore } from '../../../../stores/usePlayerChromeSettingsStore';
 import { selectPonderSettingsSnapshot, usePonderStore } from '../../../../stores/usePonderStore';
 import { useSettingsModalStore } from '../../../../stores/useSettingsModalStore';
-import { isCapacitorAndroid } from '../../../../platform/runtime';
-import { Button, Group, Reveal, Row, Segmented, Select, Toggle, type SettingsOptionDef } from '../kit';
-import AndroidScreenAwakeSetting from '../AndroidScreenAwakeSetting';
+import { Button, Group, Reveal, Row, Segmented, Select, Toggle, option, type SettingsGroupDef, type SettingsOptionDef } from '../kit';
 import { FoundUpdateRow } from './FoundUpdateRow';
-import { ANDROID, LANGUAGE, LAUNCH, O, PONDER, UPDATE } from './general/options';
 import { useSettingsPage } from './settingsPageContext';
 
 // src/components/modal/settings/pages/GeneralPage.tsx
 // The 通用 page: the interface language, what the app does when it starts and how its window
 // buttons show, the desktop app's update check (with the new version, once one is found), and the
 // hints of the Ponder tutorials.
+
+const LANGUAGE: SettingsGroupDef = { id: 'languageSettings', titleKey: 'options.languageSettings' };
+const LAUNCH: SettingsGroupDef = { id: 'labWindowAndTools', titleKey: 'options.settingsHeadingLaunch' };
+const UPDATE: SettingsGroupDef = { id: 'updateCheck', titleKey: 'options.updateCheck', electronOnly: true };
+const PONDER: SettingsGroupDef = { id: 'ponderHints', titleKey: 'options.ponderHints' };
+
+const O = {
+    language: option(LANGUAGE, 'appLanguage', 'options.appLanguage'),
+    autoPlay: option(LAUNCH, 'autoPlayOnLaunch', 'options.autoPlayOnLaunch'),
+    openPlayer: option(LAUNCH, 'openPlayerOnLaunch', 'options.openPlayerOnLaunch', { electronOnly: true }),
+    titlebarButtons: option(LAUNCH, 'alwaysShowMainWindowTitlebar', 'options.alwaysShowMainWindowTitlebar'),
+    updateCheck: option(UPDATE, 'enableUpdateCheck', 'options.enableUpdateCheck'),
+    autoUpdate: option(UPDATE, 'enableAutoUpdate', 'options.enableAutoUpdate'),
+    updateChannel: option(UPDATE, 'updateChannel', 'options.updateChannel'),
+    ponderHints: option(PONDER, 'ponderHintVisibility', 'options.ponderHints'),
+    ponderTouchButton: option(PONDER, 'ponderTouchButton', 'options.ponderTouchButton'),
+};
 
 export const OPTIONS: SettingsOptionDef[] = Object.values(O);
 
@@ -31,8 +45,6 @@ const GeneralPage: React.FC = () => {
     const setLanguagePreference = useSettingsModalStore(state => state.handleSetAppLanguagePreference);
     const autoPlay = useAudioSettingsStore(state => state.autoPlayOnLaunch);
     const setAutoPlay = useAudioSettingsStore(state => state.handleToggleAutoPlayOnLaunch);
-    const autoJumpToVisualizer = useAudioSettingsStore(state => state.autoJumpToVisualizerOnLaunch);
-    const setAutoJumpToVisualizer = useAudioSettingsStore(state => state.handleToggleAutoJumpToVisualizerOnLaunch);
     const titlebarButtons = usePlayerChromeSettingsStore(state => state.alwaysShowMainWindowTitlebar);
     const setTitlebarButtons = usePlayerChromeSettingsStore(state => state.handleToggleAlwaysShowMainWindowTitlebar);
     const ponder = usePonderStore(useShallow(selectPonderSettingsSnapshot));
@@ -77,12 +89,11 @@ const GeneralPage: React.FC = () => {
                 <Row option={O.autoPlay} hint={t('options.autoPlayOnLaunchDesc')} note={t('options.autoPlayOnLaunchDescSub')}>
                     <Toggle checked={autoPlay} onChange={setAutoPlay} />
                 </Row>
-                <Row option={O.autoJumpToVisualizer} note={t('options.autoJumpToVisualizerOnLaunchDesc')}>
-                    <Toggle checked={autoJumpToVisualizer} onChange={setAutoJumpToVisualizer} />
-                </Row>
-                <Row option={O.openPlayer} note={t('options.openPlayerOnLaunchDesc')}>
-                    <Toggle checked={openPlayerOnLaunch} onChange={onToggleOpenPlayerOnLaunch} />
-                </Row>
+                {isElectron && (
+                    <Row option={O.openPlayer} note={t('options.openPlayerOnLaunchDesc')}>
+                        <Toggle checked={openPlayerOnLaunch} onChange={onToggleOpenPlayerOnLaunch} />
+                    </Row>
+                )}
                 <Row option={O.titlebarButtons} hint={t('options.alwaysShowMainWindowTitlebarDesc')}>
                     <Toggle checked={titlebarButtons} onChange={setTitlebarButtons} />
                 </Row>
@@ -157,12 +168,6 @@ const GeneralPage: React.FC = () => {
                     <Toggle checked={ponder.showPonderTouchButton} onChange={ponder.setShowPonderTouchButton} />
                 </Row>
             </Group>
-
-            {isCapacitorAndroid() && (
-                <Group def={ANDROID}>
-                    <AndroidScreenAwakeSetting />
-                </Group>
-            )}
         </>
     );
 };

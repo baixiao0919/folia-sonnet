@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { MotionValue } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { DEFAULT_SONNET_TUNING } from '../../../types';
 import type { Line } from '../../../types';
@@ -11,6 +12,8 @@ import { useLyricRenderQuality } from '../renderQuality/useLyricRenderQuality';
 import { useVisualizerRuntime } from '../runtime';
 import { useVisualizerSongCommit } from '../songHandover';
 import { useFoliumTunings } from '@/mods/folium/registries/tunings';
+import { useVisualizerSettingsStore } from '../../../stores/useVisualizerSettingsStore';
+import { smartBeatActive } from '../../../services/beatFx/beatEffects';
 import VisualizerShell from '../VisualizerShell';
 import VisualizerSubtitleOverlay from '../VisualizerSubtitleOverlay';
 import type {
@@ -24,9 +27,7 @@ import { compileSonnetProgram } from './sonnetProgram';
 // Mounts the lazily loaded Pixi director while React retains shell and subtitle responsibilities.
 const EMPTY_SONNET_LINES: Line[] = [];
 
-export type VisualizerSonnetProps = VisualizerSharedProps;
-
-const VisualizerSonnet: React.FC<VisualizerSonnetProps> = (props) => {
+const VisualizerSonnet: React.FC<VisualizerSharedProps> = (props) => {
     const {
         currentTime,
         currentLineIndex,

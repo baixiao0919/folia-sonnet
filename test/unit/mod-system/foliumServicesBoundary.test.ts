@@ -119,14 +119,10 @@ describe('folium.omni import boundary', () => {
         expect(loaded.files.filter(file => /^src\/mods\/runtime\/(?:host|omni\/|queue\/)/.test(file))).toEqual([]);
     });
 
-    it('never reaches the host side of folium.omni from api.ts, and only the cover fallback may load Omni', () => {
-        expect(reachable.files.filter(file => /^src\/mods\/runtime\/omni\//.test(file))).toEqual([]);
-        // omni.ts 自己仍然可以被 `await import()` 到 —— 4f0d0278 起「借一张封面」要在别的平台搜歌，
-        // 它只能问 omni，而那一发是用到才加载的。允许的只有这一个文件，而且只此一条边：
-        // 别的模块静态或动态引 omni，导出窗口那块就会连带把上百个文件和全部平台拖进来。
-        const importers = reachable.files.filter(file => runtimeSpecifiersOf(file, true)
-            .some(specifier => resolveSource(file, specifier) === 'src/services/onlineMusic/omni.ts'));
-        expect(importers).toEqual(['src/services/onlineMusic/onlineCoverFallback.ts']);
+    it('never reaches Omni or the host side of folium.omni from api.ts, lazily loaded chunks included', () => {
+        expect(reachable.files.filter(file => (
+            file === 'src/services/onlineMusic/omni.ts' || /^src\/mods\/runtime\/omni\//.test(file)
+        ))).toEqual([]);
     });
 });
 

@@ -11,7 +11,7 @@ import { useCollectionResourceState } from '../../core/collection/resource/useCo
 import { useCollectionView } from '../../core/collection/useCollectionView';
 import { useCollectionActions } from '../../core/collection/mutations/useCollectionActions';
 import { useCollectionMutationSnapshot } from '../../core/collection/mutations/useCollectionMutations';
-import { useTrackSorting } from '../../core/collection/useTrackSorting';
+import { useLocalTrackSortStore } from '../../core/directory/useLocalTrackSortStore';
 import { useGridSurfaceRegistration } from '../../../hooks/useGridSurfaceRegistration';
 import { canResolveSongCatalogRef } from '../../../services/onlineMusic/catalogRefs';
 import { useNavigationPageKey } from '../../../components/app/playing-song-locator/useNavigationPageKey';
@@ -63,17 +63,16 @@ const BravaisCollection: React.FC<LibraryCollectionSurfaceProps> = ({
     const { snapshot } = useCollectionResourceState(resource);
     const tracks = useMemo(() => snapshot?.tracks ?? [], [snapshot?.tracks]);
     const filter = useBravaisCollectionFilter({ sessionKey, isActive });
-    const localSongsById = useMemo(() => new Map(localSongs?.map(song => [song.id, song])), [localSongs]);
-    // 能排哪些项按数据来源算（见 songSortOptions），与网格、TUI 同一条规则；选择本身跨 renderer 共用。
-    const sorting = useTrackSorting({ source: collection.source, localSongsById });
-    // 专辑保留它自己的音轨顺序——排序按钮不挂在专辑上。
-    const supportsTrackSorting = sorting.supported && collection.type !== 'album';
-    // 命令面板那半边（core 动作）还按「是不是本地文件夹」判本地三项排序；在线歌单的排序项由
-    // availableSortPresets 带过去，两边并集才是这个列表真正能排的全部。
+    // 与网格、TUI 同一条规则：只有本地文件夹（含「全部歌曲」）按本地排序。
     const supportsLocalTrackSorting = collection.source === 'local' && collection.type === 'folder';
-    const sortField = sorting.field;
-    const sortDirection = sorting.direction;
-    const localSort = useMemo(() => (supportsTrackSorting ? sorting.sort : null), [sorting.sort, supportsTrackSorting]);
+    const sortField = useLocalTrackSortStore(state => state.field);
+    const sortDirection = useLocalTrackSortStore(state => state.direction);
+    const setSortField = useLocalTrackSortStore(state => state.setField);
+    const setSortDirection = useLocalTrackSortStore(state => state.setDirection);
+    const localSongsById = useMemo(() => new Map(localSongs?.map(song => [song.id, song])), [localSongs]);
+    const localSort = useMemo(() => (
+        supportsLocalTrackSorting ? { songsById: localSongsById, field: sortField, direction: sortDirection } : null
+    ), [localSongsById, sortDirection, sortField, supportsLocalTrackSorting]);
     const view = useCollectionView({ tracks, committedQuery: filter.committedQuery, localSort });
     const actions = useCollectionActions({ resource, snapshot, view, port: playback, collectionType: collection.type });
     const mutationSnapshot = useCollectionMutationSnapshot(mutations);
@@ -82,17 +81,15 @@ const BravaisCollection: React.FC<LibraryCollectionSurfaceProps> = ({
     const surfaceParams = buildCoreSurfaceParams({
         declaredActions,
         supportsLocalTrackSorting,
-        availableSortPresets: supportsTrackSorting ? sorting.presets : [],
         canReloadOnlineCollection: actions.capabilities.reload.enabled,
         filteredTrackCount: view.contextTracks.length,
         isFilterActive: view.isFilterActive,
-        sortField: sorting.field,
-        sortDirection: sorting.direction,
+        sortField,
+        sortDirection,
         playFiltered: actions.playScope,
         enqueueFiltered: actions.enqueueScope,
-        setSortField: sorting.setField,
-        setSortDirection: sorting.setDirection,
-        setSortPreset: sorting.applyPreset,
+        setSortField,
+        setSortDirection,
         reloadOnlineCollection: actions.reload,
         mutationSnapshot,
         mutations,
@@ -182,12 +179,11 @@ const BravaisCollection: React.FC<LibraryCollectionSurfaceProps> = ({
         committedQuery: filter.committedQuery,
         setQuery: filter.setQuery,
         sort: {
-            supported: supportsTrackSorting,
-            field: sorting.field,
-            direction: sorting.direction,
-            presets: sorting.presets,
-            setPreset: sorting.applyPreset,
-            setDirection: sorting.setDirection,
+            supported: supportsLocalTrackSorting,
+            field: sortField,
+            direction: sortDirection,
+            setField: setSortField,
+            setDirection: setSortDirection,
         },
         trackByKey,
         forms,

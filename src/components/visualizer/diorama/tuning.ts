@@ -1,7 +1,7 @@
 import { DEFAULT_DIORAMA_TUNING, DIORAMA_PARTICLE_DENSITY_MAX, DIORAMA_PARTICLE_DENSITY_MIN, DIORAMA_PARTICLE_GLOW_INTENSITY_MAX, DIORAMA_PARTICLE_GLOW_INTENSITY_MIN, DIORAMA_PARTICLE_SIZE_MAX, DIORAMA_PARTICLE_SIZE_MIN, type DioramaTuning } from '../../../types';
 import { normalizeLyricRenderOverride } from '../../../utils/lyricRenderQuality';
 import { defineVisualizerTuning, type StoredTuningFields } from '../tuningDefinition';
-import { resolveDioramaMoteCircumference, resolveDioramaMoteRadial } from '../../../utils/visualizer/dioramaMoteTuning';
+import { resolveDioramaMoteCircumference, resolveDioramaMoteRadial } from './dioramaMoteField';
 
 // src/components/visualizer/diorama/tuning.ts
 // Diorama's tuning: its defaults, the settings store fields it lives in, where it is stored and

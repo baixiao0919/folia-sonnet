@@ -6,7 +6,6 @@ import { DEFAULT_DIORAMA_TUNING, type Line } from '../../../types';
 import { isInterludeLine } from '../../../utils/lyrics/parserCore';
 import { resolveLyricAntialias, resolveLyricPixelRatio } from '../../../utils/lyricRenderQuality';
 import { useVisualizerRuntime } from '../runtime';
-import { useVisualizerSettingsStore } from '../../../stores/useVisualizerSettingsStore';
 import { type VisualizerSharedProps } from '../definition';
 import VisualizerShell from '../VisualizerShell';
 import { useLyricRenderQuality } from '../renderQuality/useLyricRenderQuality';
@@ -523,7 +522,8 @@ const VisualizerDiorama: React.FC<VisualizerDioramaProps> = (props) => {
                             && (dioramaTuning?.soulActiveEnabled ?? DEFAULT_DIORAMA_TUNING.soulActiveEnabled)}
                         gradientIntensity={(dioramaTuning?.gradientEnabled ?? DEFAULT_DIORAMA_TUNING.gradientEnabled)
                             ? (dioramaTuning?.gradientIntensity ?? DEFAULT_DIORAMA_TUNING.gradientIntensity) : 0}
-                        keywordColoringEnabled={keywordColoringEnabled}
+                        keywordColoringEnabled={dioramaTuning?.keywordColoringEnabled
+                            ?? DEFAULT_DIORAMA_TUNING.keywordColoringEnabled}
                     />
                 </Canvas>
             </div>

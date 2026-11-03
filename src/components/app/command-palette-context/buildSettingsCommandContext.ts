@@ -204,9 +204,6 @@ export const buildSettingsCommandContext = (
         toggleAutoSkipUnplayable: () => audio.handleToggleAutoSkipUnplayable(
             !useAudioSettingsStore.getState().autoSkipUnplayable,
         ),
-        toggleBackgroundSilentSkip: () => audio.handleToggleBackgroundSilentSkip(
-            !useAudioSettingsStore.getState().backgroundSilentSkip,
-        ),
         canAutoScanLocalLibrary: isLocalLibraryAutoScanSupported,
         toggleLocalLibraryAutoScan: () => useLocalLibrarySettingsStore.getState().toggleAutoScan(),
         canReportPlayback: () => isPlaybackReportReady(),
@@ -255,8 +252,6 @@ export const buildSettingsCommandContext = (
         sleepTimerMinutes: sleepTimer.sleepTimerMinutes,
         setSleepTimerMinutes: sleepTimer.handleSetSleepTimerMinutes,
         sleepTimerDeadlineMs: sleepTimer.sleepTimerDeadlineMs,
-        sleepTimerEndAction: sleepTimer.sleepTimerEndAction,
-        setSleepTimerMinutesMode: () => sleepTimer.handleSetSleepTimerMode('minutes'),
         canGenerateAITheme: deps.canGenerateAITheme,
         isGeneratingTheme: deps.isGeneratingTheme,
         generateAITheme: deps.generateAITheme,

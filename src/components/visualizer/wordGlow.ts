@@ -1,7 +1,6 @@
 import type { Variants } from 'framer-motion';
-import { colorWithAlpha } from '../../utils/visualizer/colorMix';
+import { colorWithAlpha } from './colorMix';
 import { isGlowBlurQuantized } from '../../utils/glowBlurQuantize';
-import { isLyricFlat } from '../../utils/lyricFlat';
 
 // src/components/visualizer/wordGlow.ts
 // The per-glyph glow shared by classic and partita.
@@ -73,11 +72,6 @@ const glowRadii = (wordRevealMode?: string | null): [number, number] => (
  * and bright. drop-shadow: the same radii ramp on the filter, opacity again carrying the alpha.
  */
 const glowKeyframes = (color: string, inner: number, outer: number, peaks: number[]) => {
-    // 扁平化：这条光晕层本来就是「透明的字 + 只留它的影子」，没有影子就该彻底看不见。
-    // 在这里断掉而不是靠 CSS 去压 —— framer 每帧都在重写内联样式，抢优先级不如不产生。
-    if (isLyricFlat()) {
-        return { color: 'transparent', opacity: 0, textShadow: 'none', filter: 'none' };
-    }
     if (!isGlowBlurQuantized()) {
         return {
             color: 'transparent',

@@ -29,7 +29,6 @@
         "net.fetch": { "guards": ["folium.net.fetch"] },
         "net.embed": { "guards": ["folium.ui.embed"] },
         "stageLayers": { "guards": ["folium.registries.stageLayers"] },
-        "ai.request": { "guards": ["folium.ai.isConfigured", "folium.ai.describe", "folium.ai.complete"] },
         "platform.netease.read": { "guards": ["folium.experimental.platform.raw.request"] },
         "platform.netease.write": { "guards": ["folium.experimental.platform.raw.request.write"] }
     },

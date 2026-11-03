@@ -9,7 +9,6 @@ import { ACTIVATE_CUSTOM_THEME_KEY, THEME_DARK_KEY, THEME_LIGHT_KEY, type Import
 import { resolveSettingLabelKey, resolveSettingValueLabelKey } from '../../../utils/settingLabelLookup';
 import { isLibraryWallSeamStyle, LIBRARY_WALL_SEAM_STYLE_LABEL_KEYS } from '../../../utils/libraryWallSeamStyle';
 import { isLibraryWallSeamDirection, LIBRARY_WALL_SEAM_DIRECTION_TEXT } from '../../../utils/libraryWallSeamDirection';
-import { Button } from '@/components/ui';
 
 // src/components/modal/settings/ImportConfirmDialog.tsx
 // What an imported config would change, before it is applied, chosen field by field. Rows spell out
@@ -164,7 +163,8 @@ const BoxControl: React.FC<{
     }
 
     return (
-        <Button
+        <button
+            type="button"
             onClick={onClick}
             // A checkbox rather than a toggle button: the group box has a third, mixed state that
             // aria-pressed cannot express and would report as simply unchecked.
@@ -175,7 +175,7 @@ const BoxControl: React.FC<{
             style={style}
         >
             {glyph}
-        </Button>
+        </button>
     );
 };
 
@@ -331,13 +331,14 @@ const ImportConfirmDialog: React.FC<ImportConfirmDialogProps> = ({
                     <BoxControl state={on ? 'on' : 'off'} tone={tone} label={fieldLabel(change)} onClick={() => toggleKey(change.key)} />
                     <span className={`min-w-0 flex-1 truncate ${mutedColor}`}>{fieldLabel(change)}</span>
                     {opaque ? (
-                        <Button
+                        <button
+                            type="button"
                             onClick={() => toggleCollapse(`child:${change.key}`)}
                             className={`flex shrink-0 items-center gap-1 ${!on ? `${mutedColor} line-through` : ''}`}
                         >
                             {t('options.importChildCount', { count: children.length })}
                             <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
-                        </Button>
+                        </button>
                     ) : (
                         <>
                             {renderValue(change.from, false, change.key)}
@@ -443,13 +444,14 @@ const ImportConfirmDialog: React.FC<ImportConfirmDialogProps> = ({
                                     }}
                                 />
                                 <span className="text-sm font-medium">{t(GROUP_LABEL_KEYS[group])}</span>
-                                <Button
+                                <button
+                                    type="button"
                                     onClick={() => toggleCollapse(group)}
                                     className={`ml-auto flex items-center gap-1 text-xs ${mutedColor} transition-opacity hover:opacity-100`}
                                 >
                                     {t('options.importChangeCount', { count: plain.length + derived.length })}
                                     <ChevronDown size={13} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                                </Button>
+                                </button>
                             </div>
 
                             {/* The changes the config did not ask for, shown without a checkbox:
@@ -482,7 +484,8 @@ const ImportConfirmDialog: React.FC<ImportConfirmDialogProps> = ({
 
                 {plan.unchanged.length > 0 && (
                     <div className={`rounded-2xl border px-4 py-3 ${rowClass} opacity-70`}>
-                        <Button
+                        <button
+                            type="button"
                             onClick={() => toggleCollapse('__unchanged')}
                             className="flex w-full items-center gap-3"
                         >
@@ -492,7 +495,7 @@ const ImportConfirmDialog: React.FC<ImportConfirmDialogProps> = ({
                                 {t('options.importItemCount', { count: plan.unchanged.length })}
                                 <ChevronDown size={13} className={`transition-transform ${collapsed.has('__unchanged') ? '' : 'rotate-180'}`} />
                             </span>
-                        </Button>
+                        </button>
 
                         {!collapsed.has('__unchanged') && (
                             <div className="mt-2 space-y-2">

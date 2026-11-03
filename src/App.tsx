@@ -200,8 +200,6 @@ const LOCAL_TAIL_DECODE_ERROR_TOLERANCE_SEC = 3;
 /** How many seconds before a track ends the now playing card previews the queue's next track. */
 const NEXT_UP_LEAD_SEC = 5;
 
-// src/App.tsx
-// 应用入口：把接线 hook 依次接上，每一步把上一步的模型交出去，最后交给 AppSurface 画。
 export default function App() {
     countRender('App');
     const { t } = useTranslation();

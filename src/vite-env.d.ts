@@ -3,17 +3,6 @@
 import type { ModClearCacheResult, ModExportProgress, ModFfmpegStatus, ModLogEntry, ModMainCallStats, ModRpcMessage, ModRuntimeInfo, ModRuntimeSnapshot, ModSecretChange, ModStorageUsageResult } from './mods/types';
 
 declare global {
-  // 当前文件：Folia 构建常量、Vite 环境变量与宿主桥接类型声明。
-  interface ImportMetaEnv {
-    readonly VITE_FOLIA_API_BASE?: string;
-    /** 飞牛（FNOS）音乐服务的默认地址；为空时由用户在登录表单里填。 */
-    readonly VITE_FEINIU_API_BASE?: string;
-  }
-
-  interface ImportMeta {
-    readonly env: ImportMetaEnv;
-  }
-
   const __COMMIT_HASH__: string;
   const __GIT_BRANCH__: string;
   /** 构建来源仓库（owner/repo），拿不到时为 'unknown'。 */
@@ -341,7 +330,7 @@ declare global {
     currentTime: number;
     duration: number;
     playerState: string;
-    loopMode: 'off' | 'all' | 'one' | 'shuffle';
+    loopMode: 'off' | 'all' | 'one';
     canGoPrevious: boolean;
     canGoNext: boolean;
     prevTrackKey: string | null;
@@ -952,9 +941,9 @@ declare global {
       onNeteaseApiStatusChanged: (callback: (status: ElectronNeteaseApiStatus) => void) => () => void;
       getKugouApiStatus: () => Promise<ElectronKugouApiStatus>;
       qishuiRequest: (
-        operation: import('./services/onlineMusic/qishuiTransport').QishuiOperation,
-        params?: import('./services/onlineMusic/qishuiTransport').QishuiParams,
-      ) => Promise<import('./services/onlineMusic/qishuiTransport').QishuiBridgeResult>;
+        operation: import('./services/onlineMusic/qishui/qishuiTransport').QishuiOperation,
+        params?: import('./services/onlineMusic/qishui/qishuiTransport').QishuiParams,
+      ) => Promise<import('./services/onlineMusic/qishui/qishuiTransport').QishuiBridgeResult>;
       bodianRequest: (
         operation: import('./services/onlineMusic/bodian/bodianTransport').BodianOperation,
         params?: import('./services/onlineMusic/bodian/bodianTransport').BodianParams,

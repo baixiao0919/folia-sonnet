@@ -1,5 +1,5 @@
 import React from 'react';
-import { DEFAULT_SONNET_TUNING, SONNET_CAMERA_INTENSITY_MAX, type SonnetOuterFrameMode, type SonnetTuning } from '../../../types';
+import { DEFAULT_SONNET_TUNING, type SonnetOuterFrameMode, type SonnetTuning } from '../../../types';
 import { Group, Reveal, Row, Segmented, type SettingsGroupDef } from '../../modal/settings/kit';
 import type { VisualizerSettingsPanelProps } from '../definition';
 import { SliderRow, times, ToggleRow } from '../panelRows';
@@ -86,8 +86,7 @@ const SonnetSettingsPanel: React.FC<VisualizerSettingsPanelProps<SonnetTuning>> 
                         label={t(control.labelKey)}
                         value={sonnetTuning[control.key]}
                         min={0}
-                        // 镜头强度的上限见 SONNET_CAMERA_INTENSITY_MAX，别处两项仍是 2。
-                        max={control.key === 'cameraIntensity' ? SONNET_CAMERA_INTENSITY_MAX : 2}
+                        max={2}
                         step={0.05}
                         format={times}
                         onChange={value => onSonnetTuningChange?.({ [control.key]: value })}

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type React from 'react';
 import { PlayerState, type ActiveLocalLyricsSource, type LyricData, type PlaybackContext, type ReplayGainMode, type SongResult } from '../types';
-import { createCoverUrlResolver } from '../utils/coverUrlResolver';
+import { createCoverUrlResolver } from '../components/app/playback/createCoverUrlResolver';
 import type { AutomixTransitionEnd } from '../services/automix/automixSession';
 import type { PlaybackRoute } from '../types/hifi';
 

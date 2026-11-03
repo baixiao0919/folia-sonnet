@@ -1,5 +1,4 @@
 import React from 'react';
-import { motion } from 'framer-motion';
 import { Disc, Play, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { UnifiedSong } from '../../../types';
@@ -9,7 +8,6 @@ import { getSizedCoverUrl } from '../../../utils/coverUrl';
 import { getSongTag, isSongUnavailable } from '../../../services/onlineMusic/songAvailability';
 import { canResolveSongCatalogRef } from '../../../services/onlineMusic/catalogRefs';
 import { getProviderSongMetadata } from '../../../services/onlineMusic/songMetadata';
-import { Button } from '@/components/ui';
 
 // src/components/app/search/SearchResultRow.tsx
 
@@ -78,11 +76,12 @@ const SearchResultRow: React.FC<SearchResultRowProps> = ({
                             <Play size={18} fill="currentColor" />
                         </span>
                     )}
-                </Button>
+                </button>
 
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                        <Button
+                        <button
+                            type="button"
                             disabled={isUnavailable}
                             onClick={() => onPlayTrack(track)}
                             className="truncate text-left text-[15px] font-bold disabled:cursor-not-allowed"
@@ -114,7 +113,7 @@ const SearchResultRow: React.FC<SearchResultRowProps> = ({
                                             className="enabled:hover:underline disabled:cursor-default"
                                         >
                                             {artist.name}
-                                        </Button>
+                                        </button>
                                     </React.Fragment>
                                 );
                             })}
@@ -129,7 +128,7 @@ const SearchResultRow: React.FC<SearchResultRowProps> = ({
                                     className="max-w-[45%] truncate text-left enabled:hover:underline disabled:cursor-default"
                                 >
                                     {album.name}
-                                </Button>
+                                </button>
                             </>
                         )}
                     </div>
@@ -139,15 +138,16 @@ const SearchResultRow: React.FC<SearchResultRowProps> = ({
                     {formatDuration(metadata.durationMs)}
                 </span>
                 {!isUnavailable && (
-                    <Button
+                    <button
+                        type="button"
                         onClick={() => onAddTrackToQueue(track)}
                         className="search-row-action"
                         title={t('navidrome.addToQueue')}
                     >
                         <Plus size={16} />
-                    </Button>
+                    </button>
                 )}
-            </motion.div>
+            </div>
         </div>
     );
 };

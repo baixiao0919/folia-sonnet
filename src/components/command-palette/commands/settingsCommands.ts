@@ -197,6 +197,19 @@ export const settingsCommands: CommandPaletteCommand[] = [
         },
     },
     {
+        id: 'transition-mode-automix',
+        isAvailable: context => (context ? context.settings.transitionMode !== 'automix' : true),
+        group: 'settings',
+        title: 'Transition mode: Folia Automix',
+        description: 'Analyse both tracks and mix them automatically',
+        keywords: ['automix', 'folia automix', 'transition mode automix', '自动混音', '过渡模式自动混音', 'gdmsauto'],
+        execute: (_input, context) => {
+            if (context.settings.transitionMode === 'automix') return false;
+            context.settings.setTransitionMode('automix');
+            return true;
+        },
+    },
+    {
         id: 'transition-performance-toggle',
         platform: ['electron'],
         // Hidden without a stem model, matching the disabled switch in the transition settings.
@@ -684,7 +697,6 @@ export const settingsCommands: CommandPaletteCommand[] = [
     createToggleCommand('settings-toggle-transcode-fallback', 'settings', 'Transcode unsupported audio', 'Toggle Electron recovery for local and Navidrome audio Chromium cannot decode', ['ffmpeg', 'unsupported audio', 'decode fallback', '无法解码', '转码恢复'], context => context.settings.toggleTranscodeFallback(), { platform: ['electron'] }),
     createToggleCommand('settings-toggle-playback-fade', 'settings', 'Fade on pause and resume', 'Toggle the short fade when pausing and resuming playback', ['fade', 'fade in', 'fade out', 'pause fade', 'smooth pause', 'crossfade pause', '淡入淡出', '暂停淡出', '播放淡入', '渐入渐出'], context => context.settings.togglePlaybackFade()),
     createToggleCommand('settings-toggle-auto-skip-unplayable', 'settings', 'Skip unplayable songs', 'Toggle counting down to a skip when a song is restricted or fails for an unknown reason', ['auto skip', 'skip unavailable', 'skip restricted songs', 'cannot play', 'unplayable', 'vip only', '自动跳过', '跳过无法播放', '无法播放', '跳过会员歌曲', '跳过灰色歌曲', '播放失败跳过'], context => context.settings.toggleAutoSkipUnplayable()),
-    createToggleCommand('settings-toggle-background-silent-skip', 'settings', 'Skip silently in the background', 'Toggle skipping unplayable songs without a prompt while the app is in the background', ['background skip', 'silent skip', 'skip in background', 'background playback', '后台跳过', '静默跳过', '后台自动跳过'], context => context.settings.toggleBackgroundSilentSkip(), { platform: ['capacitor-android'] }),
     createToggleCommand('settings-toggle-bottom-subtitle-overlay', 'settings', 'Toggle bottom subtitle overlay', 'Show or hide the whole bottom subtitle overlay', [
             'bottom subtitle overlay',
             'subtitle overlay',

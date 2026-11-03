@@ -1,0 +1,69 @@
+name: Android Debug APK
+
+# 快速出包：dev + PR#975 液态玻璃 的 debug APK。
+# 跳过 typecheck / 单测（vite build 本身不做类型检查），只为拿到可安装的包。
+# 触发：推 build/lg 分支，或手动 workflow_dispatch。
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - build/lg
+
+permissions:
+  contents: read
+
+jobs:
+  build-debug:
+    name: Build debug APK (liquid glass)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Restore node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: nm-ubuntu-node22-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            nm-ubuntu-node22-
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Build web assets and sync to Android
+        run: npm run cap:sync:android
+
+      - name: Build debug APK
+        working-directory: ./android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: folia-sonnet-liquid-glass-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30

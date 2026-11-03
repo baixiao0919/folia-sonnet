@@ -6,8 +6,6 @@ import { usePlayerOverlayObstacle } from '../../../hooks/usePlayerOverlayLayout'
 import { kitTransition, useKitReducedMotion } from '../../modal/settings/kit/motion';
 import { panelTokens } from './panelTheme';
 import { FOLDED_PX } from './SongHeader';
-import { PANEL_BOTTOM_LIFT_PX } from './panelBottomBaseline';
-import { useIsShortViewport, useIsWideShortViewport } from './panelViewport';
 import { useMeasuredSize } from './useMeasuredSize';
 import { useGlass } from '@/shinoinject/useGlass';
 
@@ -21,39 +19,15 @@ import { useGlass } from '@/shinoinject/useGlass';
 
 /** The handle's height and the gap above it: how far the surface's bottom edge is above the handle's. */
 const HANDLE_ROOM_PX = 60;
-/** 矮屏下手柄上方那点净空压到最小（手柄 48px，只留 4px）—— 纵向每一像素都算数。 */
-const SHORT_HANDLE_ROOM_PX = 52;
 /** Under the surface when no handle is drawn below it. */
 const BARE_GAP_PX = 8;
 /** What stays free between the surface and the top of the window. */
 const TOP_MARGIN_PX = 56;
-/**
- * 矮屏的顶部留白：56 → 16。
- *
- * 横过来的手机一共才 390 高，顶部白留 56、底部播放条 + 手柄又扣掉一百多，面板就只剩一条缝了。
- */
-const SHORT_TOP_MARGIN_PX = 16;
-/** 又矮又宽时面板摊宽到这个宽度：横向有的是地方，摊宽之后页签能分两栏，纵向才够放。 */
-const WIDE_SURFACE_PX = 560;
-const SURFACE_PX = 360;
-/**
- * 矮而宽时不必摊到最宽的那些页签：账号、本地、Navidrome、在线歌词、AI 导演。
- * 它们内容本来就少，摊到 560 只会把右半边留成一大块空白，给回窄一点的宽度。
- * 封面、控制、队列不在这张表里——封面要封面与文字并排，另外两个要分两栏（见各自组件）。
- */
-const NARROW_WIDE_TABS: ReadonlySet<string> = new Set(['cover', 'account', 'local', 'navi', 'onlineLyrics', 'aiDirector']);
-/** 矮而宽时上面那些页签的宽度：比窄屏的 360 稍宽，够放下两栏按钮又不横贯屏幕。 */
-const NARROW_WIDE_SURFACE_PX = 392;
-/** 又矮又宽时页签改成右侧一条竖轨（见 Segments 的 vertical）占的宽度。 */
-const RAIL_WIDTH_PX = 52;
-/** 竖轨的下限：页签内容本身很矮（空状态）时，几个图标也不该被压成一条。 */
-const RAIL_MIN_HEIGHT_PX = 168;
 const PADDING_PX = 12;
 const DOCK_HEIGHT_PX = 36;
 const DOCK_GAP_PX = 12;
 /** Above the open tab: the gap, the hairline, and the gap under it. */
 const BODY_TOP_PX = { gap: 12, line: 1, under: 8 } as const;
-const BODY_TOP_TOTAL_PX = BODY_TOP_PX.gap + BODY_TOP_PX.line + BODY_TOP_PX.under;
 
 type PanelShellProps = {
     isOpen: boolean;
@@ -85,25 +59,16 @@ type PanelSurfaceProps = Omit<PanelShellProps, 'isOpen' | 'handle'> & {
 const PanelSurface: React.FC<PanelSurfaceProps> = ({ hasHandle, isCover, tabKey, theme, isDaylight, header, dock, children, layoutRef, onLayoutUpdate }) => {
     const reduced = useKitReducedMotion();
     const bottomBarBottomPx = usePlayerBottomBarBottomPx();
-    const isShort = useIsShortViewport();
-    // 矮而宽：摊宽面板，页签分两栏（见 ControlsTab）。竖屏手机横向没有余量，摊宽只会顶到屏幕边。
-    const isWideShort = useIsWideShortViewport();
     // What is under the surface: the handle, or a small gap. A variable, so the two heights below follow it at once.
-    const underPx = hasHandle ? (isShort ? SHORT_HANDLE_ROOM_PX : HANDLE_ROOM_PX) : BARE_GAP_PX;
-    // 顶部留白走变量而不是直接算进下面的 calc：它是跟着屏幕高度变的，塞进 framer 的
-    // transform 函数里，转屏后那个函数未必重算，面板就会一直按旧的留白算高度。
-    const topMarginPx = isShort ? SHORT_TOP_MARGIN_PX : TOP_MARGIN_PX;
+    const underPx = hasHandle ? HANDLE_ROOM_PX : BARE_GAP_PX;
     // Never taller than the window allows, wherever the bottom bar's baseline has been lifted to.
     const maxHeight = useTransform(
         bottomBarBottomPx,
-        bottom => `calc(100dvh - var(--pn-under) - ${bottom}px - var(--pn-top-margin))`,
+        bottom => `calc(100dvh - var(--pn-under) - ${bottom + TOP_MARGIN_PX}px)`,
     );
-    // 页签栏占掉的纵向：竖轨模式下它花的是横向，纵向这一份要还给页签内容。
-    // 走变量而不是算进下面的 calc —— 它随屏幕形态变，塞进 transform 函数里转屏后未必重算。
-    const dockAllowancePx = isWideShort ? 0 : DOCK_GAP_PX + DOCK_HEIGHT_PX;
     const headerRoom = useTransform(
         bottomBarBottomPx,
-        bottom => `calc(100dvh - var(--pn-under) - ${bottom}px - var(--pn-top-margin) - ${2 * PADDING_PX}px - var(--pn-dock))`,
+        bottom => `calc(100dvh - var(--pn-under) - ${bottom + TOP_MARGIN_PX + 2 * PADDING_PX + DOCK_GAP_PX + DOCK_HEIGHT_PX}px)`,
     );
     const scrollRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
@@ -135,15 +100,10 @@ const PanelSurface: React.FC<PanelSurfaceProps> = ({ hasHandle, isCover, tabKey,
             data-glass data-glass-light
             data-testid="unified-panel-surface"
             data-still={isStill || undefined}
-            className={`st-window pointer-events-auto @container hide-scrollbar flex max-w-[calc(100vw-2rem)] overflow-y-auto overflow-x-hidden rounded-[20px] bg-[var(--pn-glass)] text-[color:var(--st-t1)] shadow-[var(--pn-shadow)] backdrop-blur-[40px] backdrop-saturate-[1.3] [&[data-still]_*]:transition-none ${isWideShort ? 'flex-row' : 'flex-col'}`}
+            className="st-window pointer-events-auto @container hide-scrollbar flex w-[360px] max-w-[calc(100vw-2rem)] flex-col overflow-y-auto overflow-x-hidden rounded-[20px] bg-[var(--pn-glass)] text-[color:var(--st-t1)] shadow-[var(--pn-shadow)] backdrop-blur-[40px] backdrop-saturate-[1.3] [&[data-still]_*]:transition-none"
             style={{
                 ...panelTokens(isDaylight, theme, reduced),
-                width: isWideShort
-                    ? (NARROW_WIDE_TABS.has(tabKey) ? NARROW_WIDE_SURFACE_PX : WIDE_SURFACE_PX)
-                    : SURFACE_PX,
                 '--pn-under': `${underPx}px`,
-                '--pn-top-margin': `${topMarginPx}px`,
-                '--pn-dock': `${dockAllowancePx}px`,
                 '--pn-room': headerRoom,
                 // What is left of that room under the song's one line and the hairline: a tab with a
                 // list of its own ends the list there, so the list scrolls and the tab does not.
@@ -168,36 +128,32 @@ const PanelSurface: React.FC<PanelSurfaceProps> = ({ hasHandle, isCover, tabKey,
                   boxShadow: "2px 2px 8px 2px rgba(40,40,40,0.4)",
             } as MotionStyle}
         >
-            {isWideShort ? (
-                /*
-                 * 矮而宽：页签从底边那条挪到右侧一条竖轨 —— 它花的是**横向**的余量
-                 * （横过来的手机横向还剩一大半），纵向整条都还给页签内容。
-                 *
-                 * 竖轨跟整个面板一样高（贴在内容那一栏旁边），不是单独占一截：否则封面页签
-                 * 也得为它留 168px 的空位，等于把省下来的高度又吐了回去。
-                 */
-                <>
-                    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                        {header}
-                        {body}
-                    </div>
-                    <div
-                        className="shrink-0"
-                        style={{ width: RAIL_WIDTH_PX, marginLeft: DOCK_GAP_PX, minHeight: RAIL_MIN_HEIGHT_PX }}
-                    >
-                        {dock}
-                    </div>
-                </>
-            ) : (
-                <>
-                    {header}
-                    {body}
+            {header}
 
-                    <div className="shrink-0" style={{ height: DOCK_HEIGHT_PX, marginTop: DOCK_GAP_PX }}>
-                        {dock}
+            {/* As wide as the surface, so the scrollbar (the kit's, as wide as the padding) lies in the surface's own padding. */}
+            <div
+                className="st-t-unfold flex min-h-0 shrink flex-col overflow-hidden transition-[height]"
+                style={{ height: bodyHeight, marginInline: -PADDING_PX }}
+            >
+                <div
+                    className="h-px shrink-0 bg-[var(--st-line)]"
+                    style={{ marginTop: BODY_TOP_PX.gap, marginInline: PADDING_PX }}
+                />
+                {/* The tab scrolls here when the window is short. */}
+                <div
+                    ref={scrollRef}
+                    className="st-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
+                    style={{ paddingTop: BODY_TOP_PX.under, paddingLeft: PADDING_PX }}
+                >
+                    <div ref={contentRef} key={tabKey} className="st-page-in">
+                        {children}
                     </div>
-                </>
-            )}
+                </div>
+            </div>
+
+            <div className="shrink-0" style={{ height: DOCK_HEIGHT_PX, marginTop: DOCK_GAP_PX }}>
+                {dock}
+            </div>
         </motion.div>
     );
 };
@@ -205,21 +161,15 @@ const PanelSurface: React.FC<PanelSurfaceProps> = ({ hasHandle, isCover, tabKey,
 const PanelShell: React.FC<PanelShellProps> = ({ isOpen, handle, ...surface }) => {
     const bottomBarBottomPx = usePlayerBottomBarBottomPx();
     const { ref: layoutRef, invalidate: invalidateLayout } = usePlayerOverlayObstacle('player-panel', 'panel');
-    // 在播放条那条基线之上再抬一点（见 PANEL_BOTTOM_LIFT_PX）—— 手柄抬的是同一份，两者不会错开。
-    const shellBottom = useTransform(bottomBarBottomPx, bottom => bottom + PANEL_BOTTOM_LIFT_PX);
 
     return (
         <motion.div
-            style={{ bottom: shellBottom }}
+            style={{ bottom: bottomBarBottomPx }}
             onUpdate={invalidateLayout}
             className="absolute right-0 z-[60] flex flex-col items-end pointer-events-none"
-            // 与手柄同一条基线：同样要从系统导航栏里让出来（见 PanelHandle 的注释）。
-            data-folia-safe-bottom="shift"
-            data-folia-safe-right="shift"
             onClick={(e) => e.stopPropagation()}
         >
-            {/* 右边多留一点：贴着屏幕边时，那圈 20px 圆角看着像被切掉了一块。 */}
-            <div className="pr-6 md:pr-8">
+            <div className="pr-4 md:pr-8">
                 <AnimatePresence>
                     {isOpen && <PanelSurface {...surface} layoutRef={layoutRef} onLayoutUpdate={invalidateLayout} />}
                 </AnimatePresence>

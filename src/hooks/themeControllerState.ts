@@ -129,15 +129,14 @@ export const resolveBgModeTheme = ({
     isDaylight,
     defaultTheme,
     daylightTheme,
-    // 接住但不读：高亮词 / 歌词图标改回「跟着选中的主题走」之后这里不再需要它
-    // （见下面 default 分支的注释）。留在签名里，调用方与既有测试照旧传。
+    previousTheme,
 }: {
     mode: 'default' | 'ai';
     aiTheme: DualTheme | null;
     isDaylight: boolean;
     defaultTheme: Theme;
     daylightTheme: Theme;
-    previousTheme?: Theme;
+    previousTheme: Theme;
 }): Theme => {
     // "default" once meant only the default background under the AI foreground; it is now a theme
     // source of its own, so it returns the built-in theme whole even while an AI theme is loaded.
@@ -148,7 +147,11 @@ export const resolveBgModeTheme = ({
     const selectedAiTheme = aiTheme
         ? getSelectedDualTheme(aiTheme, isDaylight)
         : getSelectedDualTheme(FALLBACK_AI_DUAL_THEME, isDaylight);
-    return selectedAiTheme;
+    return {
+        ...selectedAiTheme,
+        wordColors: previousTheme.wordColors,
+        lyricsIcons: previousTheme.lyricsIcons
+    };
 };
 
 // Cover-derived fallback theme used when no AI API key is configured; the color/name work lives

@@ -11,7 +11,6 @@ import type { VisualizerSharedProps } from '../definition';
 import { useVisualizerPixiHost } from '../pixi/pixiRuntimeHost';
 import { useLyricRenderQuality } from '../renderQuality/useLyricRenderQuality';
 import { useVisualizerRuntime } from '../runtime';
-import { useVisualizerSettingsStore } from '../../../stores/useVisualizerSettingsStore';
 import { useVisualizerSongCommit } from '../songHandover';
 import { resolveSubtitleFontSizes } from '../subtitleFontSizes';
 import VisualizerShell from '../VisualizerShell';
@@ -53,8 +52,6 @@ const VisualizerLumiere: React.FC<VisualizerSharedProps> = (props) => {
         lumiereTuning = DEFAULT_LUMIERE_TUNING,
     } = props;
     const { t } = useTranslation();
-    // 关键词着色是全局开关（useVisualizerSettingsStore），不再看绘光自己的 tuning。
-    const keywordColoringEnabled = useVisualizerSettingsStore(state => state.keywordColoringEnabled);
     const hostRef = useRef<HTMLDivElement>(null);
     const [runtimeFailed, setRuntimeFailed] = useState(false);
 
@@ -122,7 +119,6 @@ const VisualizerLumiere: React.FC<VisualizerSharedProps> = (props) => {
                 audioBands: latest.audioBands,
                 staticMode: latest.staticMode,
                 showText: latest.showText,
-                keywordColoringEnabled: latest.keywordColoringEnabled,
                 paused: latest.paused,
                 metadata: metadataRef.current,
                 renderScale: latest.renderScale,
@@ -134,7 +130,6 @@ const VisualizerLumiere: React.FC<VisualizerSharedProps> = (props) => {
             runtime.setTuning(current.tuning);
             runtime.setRenderScale(current.renderScale);
             runtime.setShowText(current.showText);
-            runtime.setKeywordColoringEnabled(current.keywordColoringEnabled);
             runtime.setStaticMode(current.staticMode);
             runtime.setAudioSources(current.audioPower, current.audioBands);
             runtime.setPaused(current.paused);
@@ -159,10 +154,6 @@ const VisualizerLumiere: React.FC<VisualizerSharedProps> = (props) => {
     useEffect(() => {
         runtimeRef.current?.setShowText(showText);
     }, [showText, runtimeRef]);
-
-    useEffect(() => {
-        runtimeRef.current?.setKeywordColoringEnabled(keywordColoringEnabled);
-    }, [keywordColoringEnabled, runtimeRef]);
 
     useEffect(() => {
         runtimeRef.current?.setStaticMode(staticMode);
