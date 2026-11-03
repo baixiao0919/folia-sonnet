@@ -19,7 +19,7 @@ import PasswordLoginForm from './PasswordLoginForm';
 import { accountView, failureNoteKey, failureQuote, loginScene, methodsPendingKey, sceneHeadline, stepMarks, type RowLead } from './loginView';
 import LoginWindow from './LoginWindow';
 import PlatformColumn from './PlatformColumn';
-import LxSourceManagerDialog from '../../lxmusic/LxSourceManagerDialog';
+import { useLxWorkspaceStore } from '../../../stores/useLxWorkspaceStore';
 
 // src/components/login/window/LoginScreen.tsx
 // 登录窗口此刻画什么：从「选中了哪一行、登录走到哪一步、失败是哪一种情况」定出那一块画、标题、
@@ -84,6 +84,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 }) => {
     const { t } = useTranslation();
     const still = useKitReducedMotion();
+    // 洛雪音源不需要账号：选中它是为了让首页的搜索 / 播放落到这个 provider 上，
+    // 真正的浏览界面（歌单 / 榜单 / 搜索 / 音源）是应用级浮层里的那一页。
+    const openLxWorkspace = useLxWorkspaceStore((state) => state.open);
     const providerId = chosen?.providerId ?? null;
     const summary = rows.find(row => row.providerId === providerId) ?? null;
     const label = summary?.shortName || summary?.displayName || providerId || '';
@@ -160,7 +163,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     } else if (scene === 'accountless') {
         headline = label;
         note = t('home.providerNoAccount');
-        actions = switchAction;
+        // 洛雪：选中之后直接给一个进工作台的按钮；其余免账号来源（模组音源）保持原样。
+        actions = providerId === 'lxmusic'
+            ? [{ label: t('home.lxWorkspaceOpen'), primary: true, onClick: () => openLxWorkspace() }, ...switchAction]
+            : switchAction;
     } else {
         const key = sceneHeadline(scene, inBrowser);
         // 'title'：平台自己的登录标题；没有声明的平台是「登录到 平台名」。
@@ -193,11 +199,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     const [detailsOpen, setDetailsOpen] = useState(false);
     useEffect(() => setDetailsOpen(false), [sceneKey]);
 
-    // 洛雪音源不需要登录：点它的那一行时直接弹出音源管理 / 导入框，不触发账户流程。
-    const [lxmusicOpen, setLxmusicOpen] = useState(false);
+    // 洛雪音源不需要登录：点它的那一行时把 provider 选中（首页的搜索与播放都落到它上面），
+    // 同时直接打开洛雪工作台，省掉再点一次。
     const handleChoose = (providerId: OnlineProviderId) => {
         if (providerId === 'lxmusic') {
-            setLxmusicOpen(true);
+            onChoose(providerId);
+            openLxWorkspace();
             return;
         }
         onChoose(providerId);
@@ -284,7 +291,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             below={details ? <Unfold open={detailsOpen}>{details}</Unfold> : undefined}
         />
         {shownDone && providerId && <LoginDoneFlight parts={doneParts} providerId={providerId} label={label} user={summary?.user ?? null} />}
-        <LxSourceManagerDialog open={lxmusicOpen} onClose={() => setLxmusicOpen(false)} />
         </>
     );
 };

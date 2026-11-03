@@ -2782,6 +2782,7 @@ export default {
     "providerDesktopOnly": "Desktop app only",
     "providerNotReady": "Not fully supported here yet",
     "providerNoAccount": "No sign-in needed",
+    "lxWorkspaceOpen": "Open LX Music",
     "allProviders": "All",
     "allProvidersDetail": "{{count}} providers",
     "allProvidersAction": "Show playlists from every provider",

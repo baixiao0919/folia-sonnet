@@ -61,6 +61,7 @@ export function FoliumHomePage({ entry, extraTabs, account, surfaceProps }: Foli
     const label = resolveFoliumLabel(entry.def.label, i18n.language, entry.name);
     const sectionRef = useRef<HTMLElement>(null);
     const activeTabRef = useRef<HTMLButtonElement>(null);
+    const navRef = useRef<HTMLElement>(null);
     // 打开页面的那个元素。在渲染时取：提交之后原生首页变成 inert，浏览器会把焦点从它上面挪走。
     // 页面在几个模组页之间切换时不卸载，这个元素一直是最初打开页面的那一个。
     const [opener] = useState(deepActiveElement);
@@ -82,6 +83,29 @@ export function FoliumHomePage({ entry, extraTabs, account, surfaceProps }: Foli
             }
         };
     }, [opener]);
+
+    // 页签比屏宽时横向滚动：手机上直接划；鼠标用到自己的滚轮（WebView 里没有 shift+滚轮）。
+    // 之前这一行是 flex-wrap：窄屏上第二行被 header 的高度裁掉，靠后的页签既点不到也划不过去。
+    useEffect(() => {
+        const nav = navRef.current;
+        if (!nav) return undefined;
+        const onWheel = (event: WheelEvent) => {
+            if (event.deltaX !== 0) return;
+            const max = nav.scrollWidth - nav.clientWidth;
+            if (max <= 0 || !event.deltaY) return;
+            const next = Math.max(0, Math.min(max, nav.scrollLeft + event.deltaY));
+            if (next === nav.scrollLeft) return;
+            nav.scrollLeft = next;
+            event.preventDefault();
+        };
+        nav.addEventListener('wheel', onWheel, { passive: false });
+        return () => nav.removeEventListener('wheel', onWheel);
+    }, []);
+
+    // 当前页签滚进视野：页面在几个模组页之间切换时，激活的那个可能落在右边看不见的地方。
+    useEffect(() => {
+        activeTabRef.current?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    }, [entry.id]);
 
     // 首尾守卫（属性名即 HOME_PAGE_FOCUS_GUARD）：浏览器的 Tab 把焦点送到这里，说明焦点要离开页面了；
     // 模组自己 preventDefault 的 Tab 不挪焦点，也就走不到这里。
@@ -110,15 +134,17 @@ export function FoliumHomePage({ entry, extraTabs, account, surfaceProps }: Foli
                 className="rounded-full p-2 hover:bg-current/10">
                 <ChevronLeft size={20} />
             </Button>
-            <nav className="flex flex-1 flex-wrap items-center gap-1" aria-label={t('mods.homePageNavigation')}>
+            <nav ref={navRef}
+                className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                aria-label={t('mods.homePageNavigation')}>
                 {nativeSources.tabs.map(tab => <Button key={tab.key} disabled={Boolean(tab.disabledReason)}
                     title={tab.disabledReason || tab.label} onClick={() => { selectNativeHomeTabFromPage(tab.key, nativeSources.setTab); }}
-                    className="rounded-full px-3 py-1.5 text-sm opacity-70 hover:opacity-100 disabled:opacity-30">
+                    className="shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm opacity-70 hover:opacity-100 disabled:opacity-30">
                     {tab.label}
                 </Button>)}
                 {extraTabs.map(tab => <Button key={tab.id} aria-pressed={tab.active}
                     ref={tab.active ? activeTabRef : undefined}
-                    onClick={tab.select} className={`rounded-full px-3 py-1.5 text-sm ${tab.active ? 'bg-current/10 font-semibold' : 'opacity-70 hover:opacity-100'}`}>
+                    onClick={tab.select} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm ${tab.active ? 'bg-current/10 font-semibold' : 'opacity-70 hover:opacity-100'}`}>
                     {tab.label}
                 </Button>)}
             </nav>

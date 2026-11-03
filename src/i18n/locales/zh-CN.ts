@@ -2777,6 +2777,7 @@ export default {
     "providerDesktopOnly": "仅桌面端可用",
     "providerNotReady": "这一端还没完全支持",
     "providerNoAccount": "无需登录",
+    "lxWorkspaceOpen": "打开洛雪",
     "allProviders": "全部",
     "allProvidersDetail": "{{count}} 个平台",
     "allProvidersAction": "查看全部平台的歌单",

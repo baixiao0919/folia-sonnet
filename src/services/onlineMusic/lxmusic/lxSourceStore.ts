@@ -168,6 +168,17 @@ class LxSourceStore {
         return this.resolveFirst(platform, 'lyric', { musicInfo });
     }
 
+    /** 有没有音源能处理这个平台的某种 action。UI 用它提示「没导入音源就放不了歌」。 */
+    canResolve(platform: LxPlatformKey, action: 'musicUrl' | 'lyric' | 'pic' = 'musicUrl'): boolean {
+        return this.sources.some((src) => {
+            if (!src.enabled) return false;
+            const platformInfo = src.sources[platform];
+            if (!platformInfo || !platformInfo.actions.includes(action)) return false;
+            const loaded = this.loaded.get(src.id);
+            return Boolean(loaded?.requestHandler) && !loaded?.error;
+        });
+    }
+
     /** 统计可用 / 有错误的音源数，给 UI 用。 */
     stats(): { total: number; enabled: number; errors: number } {
         return {
