@@ -117,6 +117,23 @@ const record = (label: string, detail: string): void => {
 /** 供 ErrorBoundary 调用：React 渲染期抛错时把错误摆到屏幕上。 */
 export const reportCrash = (label: string, detail: string): void => record(label, detail);
 
+/**
+ * 「空白」是唯一一种可能误报的自检：慢机器上首帧只是来得晚。
+ * 一旦 #root 真的长出内容，就把面板收掉，别让自检挡住能用的界面。
+ */
+const dismissWhenRendered = (): void => {
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+        const root = document.getElementById('root');
+        if (root && root.children.length > 0) {
+            document.getElementById(PANEL_ID)?.remove();
+            window.clearInterval(timer);
+            return;
+        }
+        if (Date.now() - started > 30000) window.clearInterval(timer);
+    }, 500);
+};
+
 const describeError = (value: unknown): string => {
     if (value instanceof Error) return `${value.message}\n${value.stack ?? ''}`.trim();
     if (typeof value === 'string') return value;
@@ -161,6 +178,7 @@ export const installCrashGuard = (): void => {
         const collapsed = rect.width < 2 || rect.height < 2;
         if (empty || collapsed) {
             record('界面空白', '#root 没有画出内容');
+            dismissWhenRendered();
         }
-    }, 4000);
+    }, 6000);
 };

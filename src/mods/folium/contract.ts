@@ -29,6 +29,57 @@ export type FoliumDisposer = () => void;
 // which builtin modes receive as a separate prop.
 
 /** Ruby (furigana) over part of a syllable. Times in seconds on the lyric clock. */
+export interface FoliumAiTarget {
+    /**
+     * The provider selected in Settings → AI.
+     *
+     * `deepseek` is an OpenAI-compatible endpoint with a fixed address, exposed
+     * as its own provider because the form then only has to ask for a key — the
+     * request still goes out through the OpenAI transport.
+     */
+    provider: 'gemini' | 'deepseek' | 'mimo' | 'qwen' | 'tencentcloud' | 'openai' | 'anthropic' | 'kimi' | 'glm' | 'custom';
+    /** The model actually sent; where the settings leave it blank the host fills in its own default. */
+    model: string;
+}
+
+/** Folium 1.5: one prompt for `folium.ai.complete`. Names deliberately say `system` / `prompt`, not `messages`. */
+export interface FoliumAiCompletionRequest {
+    /** The standing rules the answer must follow. */
+    system: string;
+    /** Everything specific to this call. */
+    prompt: string;
+    /** 0–2; left out means the temperature saved in the host's AI settings. */
+    temperature?: number;
+    /** Output token ceiling. Best effort: the key differs per provider and some ignore it. */
+    maxTokens?: number;
+    /** Ask for JSON output where the provider supports it. Default `true`. */
+    json?: boolean;
+    /** Aborts the request; a mod should wire this to its own deactivate. */
+    signal?: AbortSignal;
+}
+
+/** Folium 1.5: what `folium.ai.complete` answered. */
+export interface FoliumAiCompletionResult {
+    /** The answer, unparsed — validating it against the mod's own contract is the caller's job. */
+    text: string;
+    /** The provider and model that answered. */
+    target: FoliumAiTarget;
+}
+
+/**
+ * `folium.ai` (Folium 1.5): the AI service the user configured in the host's own
+ * AI settings. The mod never holds a credential — it is read per request, used
+ * inside the call, and never returned, thrown or logged.
+ */
+export interface FoliumAiService {
+    /** Whether the selected provider has a credential in the host's settings. Never throws. */
+    isConfigured(): boolean;
+    /** What the next completion would use; null when nothing is configured. Never throws. */
+    describe(): FoliumAiTarget | null;
+    /** Runs one prompt; needs the `ai.request` permission. */
+    complete(request: FoliumAiCompletionRequest): Promise<FoliumAiCompletionResult>;
+}
+
 export interface FoliumLyricRuby {
     /** The ruby text. */
     text: string;

@@ -81,6 +81,12 @@ export type SyncedSettingsRecord = {
     data: SyncedVisualSettings;
 };
 
+export type SettingsConfirmation = {
+    protocol: 'settings-cas-v1';
+    revision: string | null;
+    record: SyncedSettingsRecord | null;
+};
+
 export type SyncedThemeRecord = {
     fingerprint: string;
     theme: DualTheme;

@@ -70,6 +70,13 @@ export interface ProviderCapabilities {
     userAlbums?: boolean;
     /** The provider accepts a listening report for a track the user actually played. */
     playbackReports?: boolean;
+    /** 支持用户名密码登录（飞牛 FNOS 这类自建服务只有这一种登录，没有二维码）。 */
+    passwordLogin?: boolean;
+    /**
+     * 密码登录的表单要额外填「服务器地址」。
+     * 自建服务的地址每家都不一样，写不进构建期配置，只能让用户自己填。
+     */
+    passwordLoginServerUrl?: boolean;
     /** The provider has a recommendation page of its own, read through `explore`. */
     explore?: boolean;
     /**
@@ -82,6 +89,18 @@ export interface ProviderCapabilities {
 export interface ProviderAvailability {
     configured: boolean;
     reason?: 'not-configured' | 'runtime-unavailable';
+    /**
+     * 这一路此刻能不能**开始一次新登录**；不实现即视为可以登录。
+     *
+     * 与 `configured` 是两件事，别混：`configured` 说的是「这个运行环境够不够得着这个平台」，
+     * 够不着就要当没人登录 —— accountRead.ts 会据此**清掉**那一行的账号；而这一项说的是路
+     * 是通的、只是还没走全，所以**只挡住新登录**，已经登录的账号照旧能读。
+     *
+     * 汽水在安卓上正是后者：原生宿主在（`isQishuiNativeAvailable()`），但签名、音频、收藏
+     * 还有缺口。若图省事直接回 `configured: false`，已登录的人会被清掉、又因入口置灰再也
+     * 登不回来 —— 等于把人锁死在门外。
+     */
+    canSignIn?: boolean;
 }
 
 export interface ProviderAccountSummary {
@@ -276,7 +295,7 @@ export interface LoginFailureDetail {
 // 见 services/onlineMusic/failure/onlineFailureCase.ts 的表。
 export type OnlineFailureCaseId =
     | 'unreachable' | 'local-service-stopped' | 'retry-later'
-    | 'sign-in-needed' | 'account-refused' | 'subscription-required' | 'purchase-required' | 'entitlement-required'
+    | 'sign-in-needed' | 'subscription-required' | 'purchase-required' | 'entitlement-required'
     | 'preview-only' | 'region-restricted' | 'not-configured'
     | 'taken-down' | 'no-audio' | 'audio-unplayable' | 'not-public'
     | 'refused' | 'unknown';
@@ -317,7 +336,66 @@ export type ProviderErrorCode =
     | 'subscription-required'
     | 'region-restricted'
     | 'network'
-    | 'invalid-response';
+    | 'invalid-response'
+    /** 账号或密码不对（飞牛登录）：不是「登录态过期」，界面要按填错了提示。 */
+    | 'invalid-credentials'
+    /**
+     * 请求到了，却被这台机器前面那一层拦下来要求先在网页里登录（飞牛走 FN Connect 网关时：
+     * 网关没有会话，任何接口都只回它自己的登录页，连密码登录那一步也不放行）。
+     * 与 `invalid-response` 分开：「地址上没有这个服务」这句话在这里是错的。
+     */
+    | 'web-login-required'
+    // —— 以下只在 adapter 掌握对应证据时抛出 ——
+    | 'timeout'
+    | 'rate-limited'
+    | 'service-unavailable'
+    | 'membership-required'
+    | 'purchase-required'
+    // 缺少播放权限，但平台没区分会员还是购买。
+    | 'entitlement-required'
+    // 上游在单次请求中明确表示已下架。当前内置 provider 都没有经核实的此类信号；新增产出点必须附真实响应样本测试。
+    | 'taken-down';
+
+/** auth-required 的细分：本地没有会话（signed-out），或持有的会话被上游拒绝（expired）。 */
+export type ProviderAuthState = 'signed-out' | 'expired';
+
+/** 一次音源请求尝试留下的诊断证据；UI 不得按 stage / upstreamCode 分支。 */
+export interface ProviderPlaybackAttempt {
+    /** 'song_url' | 'user_cloud_url' | 'legacy_play_info' | 'music_play' ... */
+    stage: string;
+    quality?: AudioQualityPreference;
+    /** KuGou: 'metadata' | 'hash-only' | 'cloud' */
+    variant?: string;
+    /** empty = 服务有应答但没给 URL */
+    outcome: 'empty' | 'error';
+    code?: ProviderErrorCode;
+    httpStatus?: number;
+    /** 沿用 qq-music-api / bodian-music-api 的命名；不叫 code */
+    upstreamCode?: number | string;
+    retryAfterMs?: number;
+    transient?: boolean;
+    /** 后端原文，例如 QQ 的 '暂无播放链接' */
+    detail?: string;
+}
+
+export interface OnlineProviderErrorDetails {
+    /** 'config' | 'backend' | 'runtime' | 'ipc' | 'upstream' | 'local-api' | 'song-url' | 'audio-source' ... */
+    stage?: string;
+    upstreamCode?: number | string;
+    /** 仅 adapter 能证明时写 */
+    auth?: ProviderAuthState;
+    /** false = 已证实持久（未配置 / 需桌面版）；true = 已证实暂时；缺省 = 未知 */
+    transient?: boolean;
+    /** 没有会话且上游只是没给链接：登录“可能”有用，不能断定为 auth-required */
+    signInMayHelp?: boolean;
+    /**
+     * 后端按受控实测的特征给出的「可能」原因（QQ 3.3.0 的 playback.maybe-membership / maybe-region-restricted）。
+     * 只是可能：结论仍是 not-playable，界面只换一句带「可能」的文案，不能升级成 membership-required / region-restricted。
+     */
+    likelyCause?: 'membership' | 'region';
+    attempts?: readonly ProviderPlaybackAttempt[];
+}
+
 
 export class OnlineProviderError extends Error {
     constructor(
@@ -329,6 +407,8 @@ export class OnlineProviderError extends Error {
         public readonly httpStatus?: number,
         /** 后端要求的冷却时长（429 退避）；只有能读出它的 transport 会传。 */
         public readonly retryAfterMs?: number,
+        /** 诊断与归一化证据。追加在末尾，现有按位置传参的调用不用改。 */
+        public readonly details?: OnlineProviderErrorDetails,
     ) {
         super(message);
         this.name = 'OnlineProviderError';
@@ -363,6 +443,8 @@ export interface OnlineSearchProvider {
      */
     searchPlaylists?(query: string, limit: number, offset: number): Promise<ProviderPage<ProviderCollection>>;
 }
+/** 搜索页要哪几类结果：`omni.getProviderSearchKinds` 的返回类型。 */
+export type OmniSearchKind = ProviderSearchKind;
 
 export interface OnlinePlaybackProvider {
     /**
@@ -396,19 +478,8 @@ export interface OnlinePlaybackProvider {
      * one of them than it was asked for says so in the source's `quality`.
      */
     audioQualityLevels?: readonly AudioQualityPreference[];
-    /**
-     * The i18n key of the notice shown when a preview clip of this provider's song plays
-     * (`ProviderAudioSource.preview`), for a provider whose clips mean something else than
-     * "this account may only preview it". Without it, `status.songPreviewOnly`.
-     */
-    previewNoticeKey?: string;
     getAvailability?(song: SongResult): ProviderSongAvailability;
     getReplacement?(song: SongResult): Promise<ProviderSongReplacement | null>;
-    /**
-     * The song `song` is played as in its place, or null where it plays as itself: a music video
-     * that a list showed as itself, played as its song version.
-     */
-    getPlayedSong?(song: SongResult): Promise<UnifiedSong | null>;
     /**
      * For a provider that keeps its audio in a cache of its own instead of the media cache: puts the
      * file that `url` (one of its audio URLs) plays into that cache, and resolves to whether it is
@@ -457,7 +528,24 @@ export interface OnlineSongMetadataProvider {
 export interface LoginMethod {
     id: string;          // 传给后端的识别值（QQ: 'qq' | 'wechat'）
     labelKey: string;    // i18n key，由 UI 层翻译
-    iconKey: string;     // 图标的名字：UI 层按它取 src/assets/providers/ 里同名的 .svg
+    iconKey: string;     // 图标的名字：UI 层按它取 src/assets/providers/ 里同名的文件（svg / png / webp）
+    /**
+     * 选了这种方式不是去取二维码，而是给一张密码登录的表单（自建服务那一类没有二维码）。
+     * 有它时，选完就停在表单那一屏；没有它时照旧走二维码。
+     */
+    passwordField?: LoginPasswordField;
+}
+
+/**
+ * 密码登录表单的第一栏：自建服务的「服务器」每家写法不一样 —— 有的要整条地址，有的只要一个
+ * ID（由平台自己拼成地址）。所以这一栏叫它什么、例子写什么，都由平台自己给 i18n key；
+ * UI 只是照着翻译，不知道哪一种是哪一家。
+ */
+export interface LoginPasswordField {
+    /** 这一栏的标签（i18n key）。 */
+    labelKey: string;
+    /** 这一栏里的示例（i18n key）；没有就不显示占位符。 */
+    placeholderKey?: string;
 }
 
 // 平台的记号：一个字和一种颜色，画在登录窗口、切换器和账号头像的角上。平台自己声明；没有声明的
@@ -554,6 +642,19 @@ export type LoginSelfCheckResult = {
     keepsSignInEncrypted?: boolean;
 };
 
+/** 一次密码登录交给 provider 的东西。自建服务（飞牛）没有固定后端，地址由用户在表单里填。 */
+export interface PasswordLoginCredentials {
+    username: string;
+    password: string;
+    /** 只在 `capabilities.passwordLoginServerUrl` 为真时由界面填进来。 */
+    serverUrl?: string;
+    /**
+     * 这一次选的是哪一种登录方式（多方式时的 `LoginMethod.id`）；单一表单时为 null。
+     * 平台照它把表单第一栏填的东西变成自己的地址：同一种表单上，FN ID 与整条地址要拼成不同的东西。
+     */
+    methodId?: string | null;
+}
+
 export interface OnlineAuthProvider {
     getLoginStatus(): Promise<ProviderUser | null>;
     /**
@@ -562,6 +663,19 @@ export interface OnlineAuthProvider {
      * from is dropped before the first wait in here (account/accountRead.ts).
      */
     logout(): Promise<void>;
+    /**
+     * 用户名密码登录。声明了 `capabilities.passwordLogin` 的 provider 必须实现它：
+     * 登录流程据此直接显示表单，不再走二维码那一套。
+     * 账号或密码不对时抛 `OnlineProviderError('invalid-credentials')`，界面据此提示重填，
+     * 而不是当成「登录态过期」把人踢回起点。
+     */
+    loginWithPassword?(credentials: PasswordLoginCredentials): Promise<ProviderUser | null>;
+    /**
+     * 密码登录表单的预填值（上次填过的服务器地址）。
+     * 多种登录方式时按选中的那一种给：方式不同，第一栏要的东西也不同（整条地址 / 一个 ID），
+     * 把上次整条地址预填进「填 ID」的那一栏只会把人带偏。
+     */
+    getPasswordLoginDefaults?(methodId?: string | null): { serverUrl?: string };
     /**
      * The platform names nobody, or refuses the sign-in, and the account is about to leave the
      * screen: the adapter drops what it keeps of that sign-in and account. Called before the
@@ -777,13 +891,6 @@ export interface ProviderExploreItemsPage {
 export interface OnlineExploreProvider {
     getFeed(cursor?: string, listened?: UnifiedSong[]): Promise<ProviderExplorePage>;
     getSectionItems?(cursor: string): Promise<ProviderExploreItemsPage>;
-    /**
-     * Of the songs played here, as the app recorded them, which song the platform shows each as, by
-     * the id of each: another song (a music video as its song version), or null for the song itself.
-     * One the platform could not be asked about is left out. The app's own record of the songs
-     * played is set right with them, once a run (ownSections.ts).
-     */
-    songsShownAs?(songs: UnifiedSong[]): Promise<Map<string, UnifiedSong | null>>;
 }
 
 export interface OnlineMutationProvider {
@@ -850,18 +957,23 @@ export interface OnlineRawRequestProvider {
     request(endpoint: string, params: Record<string, JsonValue>, signal: AbortSignal): Promise<unknown>;
 }
 
+/**
+ * 原生网关的凭据同步（见 OnlineMusicProvider.nativeGateway）。
+ *
+ * 原生兜底在 WebView 冻结之后自己切歌、自己拼取流地址，需要平台地址与登录态；
+ * 这些东西怎么读只有平台自己的 transport 清楚，所以由 provider 实现这一个方法。
+ */
+export interface OnlineNativeGatewayProvider {
+    /** 把当前会话里的地址与凭据推给原生网关。没登录时推空的（原生那边据此不放行）。 */
+    syncCredentials(): void;
+}
+
 export interface OnlineMusicProvider {
     id: OnlineProviderId;
     displayName: string;
     shortName?: string;
     mark?: ProviderMark;
     getAvailability?(): ProviderAvailability;
-    /**
-     * 原生兜底（WebView 冻结后仍能切歌 / 取流）要用到这个平台的凭据：
-     * 取流地址怎么拼、Cookie 怎么带，只有平台自己的 transport 知道。
-     * 由 omni.syncNativeGatewayCredentials 统一推给原生网关；没有这条兜底的平台不实现。
-     */
-    nativeGateway?: { syncCredentials(): void };
     /**
      * What the provider watches for as long as the app is open (a local service of its own that
      * may fail to start), telling the listener through `tell`. Started once the app is up;
@@ -892,6 +1004,14 @@ export interface OnlineMusicProvider {
     mutations?: OnlineMutationProvider;
     /** 平台后端的原始接口（OnlineRawRequestProvider）；没有它的平台不能直通。 */
     raw?: OnlineRawRequestProvider;
+    /**
+     * 原生兜底要用的凭据：交给原生网关（跑在 WebView 之外的那一份）。
+     *
+     * WebView 被冻结之后，切歌与取流由原生自己做，它得知道「这个平台的地址与登录态」。
+     * 凭据怎么读只有各平台自己的 transport 清楚，所以由 provider 实现、omni 统一调用
+     * （见 omni.syncNativeGatewayCredentials）。没有原生兜底的平台不实现。
+     */
+    nativeGateway?: OnlineNativeGatewayProvider;
 }
 
 // Public canonical contract consumed through the omni facade. Provider-prefixed
@@ -919,7 +1039,6 @@ export type OmniExploreItem = ProviderExploreItem;
 export type OmniExploreSection = ProviderExploreSection;
 export type OmniExplorePage = ProviderExplorePage;
 export type OmniExploreItemsPage = ProviderExploreItemsPage;
-export type OmniSearchKind = ProviderSearchKind;
 export { OnlineProviderError as OmniError };
 
 /**

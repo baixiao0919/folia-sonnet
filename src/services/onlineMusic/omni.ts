@@ -1,10 +1,5 @@
-import type {
-    OmniCollection,
-    OmniPage,
-    OmniProviderId,
-    OmniSearchKind,
-    UnifiedSong,
-} from '../../types/onlineMusic';
+import type { OmniCollection, OmniPage, OmniProviderId, OmniSearchKind } from '../../types/onlineMusic';
+import type { UnifiedSong } from '../../types';
 import {
     getOnlineMusicProvider,
     providerSupports,
