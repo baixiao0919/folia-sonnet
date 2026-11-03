@@ -11,10 +11,11 @@
 
 import { resolveProxiedUrl } from '../../proxiedUrl';
 
-export type LxPublicPlatform = 'wy' | 'kg' | 'kw';
+export type LxPublicPlatform = 'wy' | 'kg' | 'kw' | 'tx';
 
 export const LX_PUBLIC_PLATFORMS: ReadonlyArray<{ key: LxPublicPlatform; label: string; color: string }> = [
     { key: 'wy', label: '网易云', color: '#dc2626' },
+    { key: 'tx', label: 'QQ音乐', color: '#16a34a' },
     { key: 'kg', label: '酷狗', color: '#2563eb' },
     { key: 'kw', label: '酷我', color: '#f59e0b' },
 ];
@@ -52,6 +53,17 @@ export type LxApiChart = {
     name: string;
     coverUrl?: string;
     description?: string;
+};
+
+/** 电台节目：名字与封面是节目的，`song` 是真正能播的那首（网易云主音轨）。 */
+export type LxApiRadioProgram = {
+    platform: LxPublicPlatform;
+    id: string;
+    name: string;
+    coverUrl?: string;
+    djName?: string;
+    description?: string;
+    song: LxApiSong;
 };
 
 export type LxApiPage<T> = { items: T[]; hasMore: boolean };
@@ -350,6 +362,96 @@ const kuwoSong = (raw: Raw): LxApiSong => {
     };
 };
 
+const kuwoCollection = (raw: Raw): LxApiCollection => ({
+    platform: 'kw',
+    id: toText(pick(raw, 'id')),
+    name: stripTags(pick(raw, 'name', 'title')),
+    kind: 'playlist',
+    coverUrl: normalizeKuwoCover(pick(raw, 'img', 'pic')),
+    description: stripTags(pick(raw, 'desc', 'info')) || undefined,
+    trackCount: toNumber(pick(raw, 'total')) || undefined,
+    playCount: toNumber(pick(raw, 'listencnt')) || undefined,
+    creatorName: stripTags(pick(raw, 'uname')) || undefined,
+});
+
+// ---------------------------------------------------------------- QQ 音乐
+
+const QQ_REFERER = 'https://y.qq.com/';
+const QQ_CGI = 'https://c.y.qq.com';
+const QQ_MUSICU = 'https://u.y.qq.com/cgi-bin/musicu.fcg';
+
+/** QQ 的封面靠专辑 mid 拼：`T002R300x300M000<albummid>.jpg`。 */
+const qqCover = (albumMid: string, size = 300): string | undefined => (
+    albumMid ? `https://y.qq.com/music/photo_new/T002R${size}x${size}M000${albumMid}.jpg` : undefined
+);
+
+const qqSong = (raw: Raw): LxApiSong => {
+    const album = asRecord(raw.album);
+    const albumMid = toText(pick(raw, 'albummid') ?? album?.mid);
+    const cover = qqCover(albumMid) ?? normalizeCover(pick(raw, 'albumcover'));
+    const singers = asArray(raw.singer);
+    return {
+        platform: 'tx',
+        // 音源脚本认 songmid，所以 id 就用 mid（不是那个数字 id）。
+        id: toText(pick(raw, 'mid', 'songmid')),
+        name: stripTags(pick(raw, 'name', 'title', 'songname')),
+        artists: singers
+            .map((singer) => ({ id: toText(singer.id) || undefined, name: stripTags(singer.name) }))
+            .filter((artist) => artist.name),
+        album: {
+            id: toText(pick(raw, 'albumid') ?? album?.id) || undefined,
+            name: stripTags(pick(raw, 'albumname') ?? album?.name),
+            coverUrl: cover,
+        },
+        // QQ 的 interval 是秒。
+        durationMs: toNumber(pick(raw, 'interval')) * 1000,
+        coverUrl: cover,
+    };
+};
+
+const qqCollection = (raw: Raw): LxApiCollection => ({
+    platform: 'tx',
+    id: toText(pick(raw, 'dissid', 'disstid', 'id')),
+    name: stripTags(pick(raw, 'dissname', 'title')),
+    kind: 'playlist',
+    coverUrl: normalizeCover(pick(raw, 'imgurl', 'logo')),
+    description: stripTags(pick(raw, 'introduction', 'desc')) || undefined,
+    trackCount: toNumber(pick(raw, 'song_count', 'cur_song_num')) || undefined,
+    playCount: toNumber(pick(raw, 'listennum', 'visitnum')) || undefined,
+    creatorName: stripTags(asRecord(raw.creator)?.name) || undefined,
+});
+
+const qqChart = (raw: Raw): LxApiChart => ({
+    platform: 'tx',
+    id: toText(pick(raw, 'topId', 'topid', 'id')),
+    name: stripTags(pick(raw, 'title', 'name')),
+    coverUrl: normalizeCover(pick(raw, 'frontPicUrl', 'headPicUrl')),
+    description: stripTags(pick(raw, 'intro')) || undefined,
+});
+
+/** musicu.fcg 只吃一整套 comm 参数，少一个就回 500001；拼好了 GET 也能用。 */
+const QQ_COMM = {
+    cv: 4747474,
+    ct: 24,
+    format: 'json',
+    inCharset: 'utf-8',
+    outCharset: 'utf-8',
+    notice: 0,
+    platform: 'yqq.json',
+    needNewCode: 1,
+    uin: '0',
+    g_tk_new_20200303: 5381,
+    g_tk: 5381,
+} as const;
+
+const qqMusicu = async (module: string, method: string, param: Raw): Promise<Raw | null> => {
+    const data = encodeURIComponent(JSON.stringify({
+        comm: QQ_COMM,
+        req_1: { module, method, param },
+    }));
+    return asRecord(await fetchJson(`${QQ_MUSICU}?format=json&data=${data}`, REQUEST_TIMEOUT_MS, QQ_REFERER));
+};
+
 // ---------------------------------------------------------------- 对外接口
 
 export const lxApiSearchSongs = async (
@@ -369,6 +471,15 @@ export const lxApiSearchSongs = async (
             `${KUGOU_SEARCH_HOST}/api/v3/search/song?format=json&keyword=${encodeURIComponent(keyword)}&page=${page}&pagesize=${limit}&showtype=1`,
         ));
         const songs = asArray(asRecord(payload?.data)?.info).map(kugouSong).filter((s) => s.id && s.name);
+        return pageOf(songs, limit);
+    }
+    if (platform === 'tx') {
+        const payload = asRecord(await fetchJson(
+            `${QQ_CGI}/soso/fcgi-bin/client_search_cp?format=json&p=${page}&n=${limit}&w=${encodeURIComponent(keyword)}`,
+            REQUEST_TIMEOUT_MS,
+            QQ_REFERER,
+        ));
+        const songs = asArray(asRecord(asRecord(payload?.data)?.song)?.list).map(qqSong).filter((s) => s.id && s.name);
         return pageOf(songs, limit);
     }
     const payload = asRecord(await fetchJson(
@@ -395,6 +506,16 @@ export const lxApiSearchPlaylists = async (
             `${KUGOU_SEARCH_HOST}/api/v3/search/special?format=json&keyword=${encodeURIComponent(keyword)}&page=${page}&pagesize=${limit}`,
         ));
         const list = asArray(asRecord(payload?.data)?.info).map(kugouCollection).filter((c) => c.id && c.name);
+        return pageOf(list, limit);
+    }
+    if (platform === 'tx') {
+        // t=8 是 QQ 的「歌单」搜索类型。
+        const payload = asRecord(await fetchJson(
+            `${QQ_CGI}/soso/fcgi-bin/client_search_cp?format=json&p=${page}&n=${limit}&t=8&w=${encodeURIComponent(keyword)}`,
+            REQUEST_TIMEOUT_MS,
+            QQ_REFERER,
+        ));
+        const list = asArray(asRecord(asRecord(payload?.data)?.special)?.list).map(qqCollection).filter((c) => c.id && c.name);
         return pageOf(list, limit);
     }
     return { items: [], hasMore: false };
@@ -441,6 +562,28 @@ export const lxApiPlaylistSquare = async (
         const list = asArray(info?.info).map(kugouCollection).filter((c) => c.id && c.name);
         return pageOf(list, limit);
     }
+    if (platform === 'kw') {
+        // 酷我网页端那个 www 接口要 csrf/cookie，wapi 这套公开接口不要。
+        const payload = asRecord(await fetchJson(
+            `https://wapi.kuwo.cn/api/pc/classify/playlist/getRcmPlayList?rn=${limit}&pn=${page}&order=hot`,
+            REQUEST_TIMEOUT_MS,
+            'https://www.kuwo.cn/',
+        ));
+        const list = asArray(asRecord(payload?.data)?.data).map(kuwoCollection).filter((c) => c.id && c.name);
+        return { items: list, hasMore: list.length >= limit };
+    }
+    if (platform === 'tx') {
+        const payload = asRecord(await fetchJson(
+            `${QQ_CGI}/splcloud/fcgi-bin/fcg_get_diss_by_tag.fcg?picmid=1&rnd=0.1&g_tk=5381`
+            + `&loginUin=0&hostUin=0&format=json&inCharset=utf8&outCharset=utf-8&notice=0`
+            + `&platform=yqq.json&needNewCode=0&categoryId=10000000&sortId=5`
+            + `&sin=${offset}&ein=${offset + limit - 1}`,
+            REQUEST_TIMEOUT_MS,
+            QQ_REFERER,
+        ));
+        const list = asArray(asRecord(payload?.data)?.list).map(qqCollection).filter((c) => c.id && c.name);
+        return { items: list, hasMore: list.length >= limit };
+    }
     return { items: [], hasMore: false };
 };
 
@@ -448,6 +591,14 @@ export const lxApiCharts = async (platform: LxPublicPlatform): Promise<LxApiChar
     if (platform === 'kg') {
         const payload = asRecord(await fetchJson(`${KUGOU_WEB_HOST}/rank/list&json=true`));
         const list = asArray(asRecord(payload?.rank)?.list).map(kugouChart).filter((c) => c.id && c.name);
+        if (list.length > 0) return list;
+    }
+    if (platform === 'tx') {
+        const payload = await qqMusicu('musicToplist.ToplistInfoServer', 'GetAll', {});
+        const groups = asArray(asRecord(asRecord(payload?.req_1)?.data)?.group);
+        const list = groups
+            .flatMap((group) => asArray(group.toplist).map(qqChart))
+            .filter((chart) => chart.id && chart.name);
         if (list.length > 0) return list;
     }
     if (platform === 'wy') {
@@ -471,6 +622,20 @@ export const lxApiChartTracks = async (
         const payload = asRecord(await fetchJson(`${KUGOU_WEB_HOST}/rank/info/?rankid=${encodeURIComponent(chartId)}&page=${page}&json=true`));
         const songs = asArray(asRecord(payload?.songs)?.list).map(kugouSong).filter((s) => s.id && s.name);
         return pageOf(songs, limit);
+    }
+    if (platform === 'tx') {
+        const payload = asRecord(await fetchJson(
+            `${QQ_CGI}/v8/fcg-bin/fcg_v8_toplist_cp.fcg?topid=${encodeURIComponent(chartId)}`
+            + `&format=json&page=detail&type=top&song_begin=${offset}&song_num=${limit}`,
+            REQUEST_TIMEOUT_MS,
+            QQ_REFERER,
+        ));
+        const songs = asArray(payload?.songlist)
+            .map((item) => asRecord(item.data))
+            .filter((data): data is Raw => Boolean(data))
+            .map(qqSong)
+            .filter((song) => song.id && song.name);
+        return { items: songs, hasMore: songs.length >= limit };
     }
     const payload = asRecord(await fetchJson(
         `https://kbangserver.kuwo.cn/ksong.s?from=pc&fmt=json&pn=${page - 1}&rn=${limit}&type=bang&data=content&id=${encodeURIComponent(chartId)}&show_copyright_off=1`,
@@ -499,6 +664,27 @@ export const lxApiPlaylistTracks = async (
         const songs = asArray(asRecord(payload?.data)?.info).map(kugouSong).filter((s) => s.id && s.name);
         return pageOf(songs, limit);
     }
+    if (platform === 'kw') {
+        // 少 `vipver=1&mobi=1` 时 total 有值但 musiclist 是空的（踩过）。
+        const payload = asRecord(await fetchJson(
+            `https://nplserver.kuwo.cn/pl.svc?op=getlistinfo&pid=${encodeURIComponent(playlistId)}&pn=${page - 1}&rn=${limit}`
+            + '&encode=utf8&keyset=pl2012&identity=kuwo&pcmp4=1&vipver=1&mobi=1',
+            REQUEST_TIMEOUT_MS,
+            'https://www.kuwo.cn/',
+        ));
+        const songs = asArray(payload?.musiclist).map(kuwoSong).filter((s) => s.id && s.name);
+        return { items: songs, hasMore: songs.length >= limit };
+    }
+    if (platform === 'tx') {
+        const payload = asRecord(await fetchJson(
+            `${QQ_CGI}/v8/fcg-bin/fcg_v8_playlist_cp.fcg?id=${encodeURIComponent(playlistId)}&format=json&newsong=1&skin=1`,
+            REQUEST_TIMEOUT_MS,
+            QQ_REFERER,
+        ));
+        const cdlist = asArray(asRecord(payload?.data)?.cdlist);
+        const all = asArray(cdlist[0]?.songlist).map(qqSong).filter((s) => s.id && s.name);
+        return { items: all.slice(offset, offset + limit), hasMore: all.length > offset + limit };
+    }
     return { items: [], hasMore: false };
 };
 
@@ -508,10 +694,96 @@ export const lxApiAlbumTracks = async (
     limit: number,
     offset: number,
 ): Promise<LxApiPage<LxApiSong>> => {
+    const page = pageIndex(offset, limit);
+    if (platform === 'wy') {
+        const payload = ensureNetease(await fetchJson(`${NETEASE_BASE}/api/album/${encodeURIComponent(albumId)}`));
+        const songs = asArray(asRecord(payload?.album)?.songs).map(neteaseSong).filter((s) => s.id && s.name);
+        return { items: songs.slice(offset, offset + limit), hasMore: songs.length > offset + limit };
+    }
+    if (platform === 'kg') {
+        const payload = asRecord(await fetchJson(
+            `${KUGOU_SEARCH_HOST}/api/v3/album/song?albumid=${encodeURIComponent(albumId)}&page=${page}&pagesize=${limit}&plat=0&version=8000`,
+        ));
+        const songs = asArray(asRecord(payload?.data)?.info).map(kugouSong).filter((s) => s.id && s.name);
+        return pageOf(songs, limit);
+    }
+    return { items: [], hasMore: false };
+};
+
+/** 新碟 / 热门专辑：网易云与酷狗有公开入口，QQ 与酷我没有。 */
+export const lxApiAlbumSquare = async (
+    platform: LxPublicPlatform,
+    limit: number,
+    offset: number,
+): Promise<LxApiPage<LxApiCollection>> => {
+    const page = pageIndex(offset, limit);
+    if (platform === 'wy') {
+        const payload = ensureNetease(await fetchJson(
+            `${NETEASE_BASE}/api/album/new?area=ALL&limit=${limit}&offset=${offset}`,
+        ));
+        const list = asArray(payload?.albums).map((raw) => ({
+            platform: 'wy' as const,
+            id: toText(raw.id),
+            name: stripTags(raw.name),
+            kind: 'album' as const,
+            coverUrl: normalizeCover(pick(raw, 'picUrl', 'blurPicUrl')),
+            trackCount: toNumber(raw.size) || undefined,
+            creatorName: asArray(raw.artists).map((artist) => stripTags(artist.name)).filter(Boolean).join(' / ') || undefined,
+            updatedAt: toNumber(pick(raw, 'publishTime')) || undefined,
+        })).filter((item) => item.id && item.name);
+        return { items: list, hasMore: list.length >= limit };
+    }
+    if (platform === 'kg') {
+        const payload = asRecord(await fetchJson(
+            `${KUGOU_SEARCH_HOST}/api/v3/album/list?format=json&page=${page}&pagesize=${limit}`,
+        ));
+        const list = asArray(asRecord(payload?.data)?.info).map((raw) => ({
+            platform: 'kg' as const,
+            id: toText(pick(raw, 'albumid', 'album_id')),
+            name: stripTags(pick(raw, 'albumname', 'album_name')),
+            kind: 'album' as const,
+            coverUrl: normalizeCover(pick(raw, 'imgurl')),
+            trackCount: toNumber(pick(raw, 'songcount')) || undefined,
+            creatorName: stripTags(pick(raw, 'singername')) || undefined,
+            description: stripTags(pick(raw, 'intro')) || undefined,
+        })).filter((item) => item.id && item.name);
+        return { items: list, hasMore: list.length >= limit };
+    }
+    return { items: [], hasMore: false };
+};
+
+/**
+ * 电台节目：网易云有「推荐节目」公开接口，每条节目自带主音轨（能直接播）。
+ * 其余几家没有不需要登录态的电台入口。
+ */
+export const lxApiRadioPrograms = async (
+    platform: LxPublicPlatform,
+    limit: number,
+    offset: number,
+): Promise<LxApiPage<LxApiRadioProgram>> => {
     if (platform !== 'wy') return { items: [], hasMore: false };
-    const payload = ensureNetease(await fetchJson(`${NETEASE_BASE}/api/album/${encodeURIComponent(albumId)}`));
-    const songs = asArray(asRecord(payload?.album)?.songs).map(neteaseSong).filter((s) => s.id && s.name);
-    return { items: songs.slice(offset, offset + limit), hasMore: songs.length > offset + limit };
+    const payload = ensureNetease(await fetchJson(
+        `${NETEASE_BASE}/api/personalized/djprogram?limit=${limit}&offset=${offset}`,
+    ));
+    const list = asArray(payload?.result)
+        .map((raw) => {
+            const program = asRecord(raw.program);
+            const main = asRecord(program?.mainSong);
+            const song = main ? neteaseSong(main) : null;
+            return {
+                platform: 'wy' as const,
+                id: toText(pick(raw, 'id', program?.id)),
+                name: stripTags(pick(raw, 'name', program?.name)),
+                coverUrl: normalizeCover(pick(raw, 'picUrl', program?.coverUrl, program?.blurCoverUrl)),
+                djName: stripTags(asRecord(program?.dj)?.nickname) || undefined,
+                description: stripTags(pick(raw, 'copywriter', program?.description)) || undefined,
+                song,
+            };
+        })
+        // 没有主音轨的节目播不了，直接不列。
+        .filter((item) => Boolean(item.song && item.song.id && item.name))
+        .map((item) => ({ ...item, song: item.song as LxApiSong }));
+    return { items: list, hasMore: list.length >= limit };
 };
 
 /**

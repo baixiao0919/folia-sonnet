@@ -20,6 +20,7 @@ import type { LyricData, SongResult, UnifiedSong } from '../../../types';
 import { lxSourceStore } from './lxSourceStore';
 import { FOLIA_QUALITY_TO_LX, type LxPlatformKey } from './lxTypes';
 import {
+    lxApiAlbumSquare,
     lxApiAlbumTracks,
     lxApiChartTracks,
     lxApiCharts,
@@ -27,6 +28,7 @@ import {
     lxApiLyric,
     lxApiPlaylistSquare,
     lxApiPlaylistTracks,
+    lxApiRadioPrograms,
     lxApiSearchAlbums,
     lxApiSearchPlaylists,
     lxApiSearchSongs,
@@ -235,7 +237,7 @@ const parseLrcToLyricData = (lrc: string): LyricData => {
 };
 
 const isPublicPlatform = (platform: LxPlatformKey): platform is LxPublicPlatform => (
-    platform === 'wy' || platform === 'kg' || platform === 'kw'
+    platform === 'wy' || platform === 'kg' || platform === 'kw' || platform === 'tx'
 );
 
 // ---------------------------------------------------------------- provider
@@ -289,7 +291,7 @@ export const lxmusicProvider: OnlineMusicProvider = {
         async searchPlaylists(query, limit, offset) {
             if (!query.trim()) return emptyPage<ProviderCollection>(offset);
             const results = await Promise.allSettled(
-                (['wy', 'kg'] as const).map((platform) => lxApiSearchPlaylists(platform, query, limit, offset)),
+                (['wy', 'kg', 'tx'] as const).map((platform) => lxApiSearchPlaylists(platform, query, limit, offset)),
             );
             const pages = results
                 .filter((result): result is PromiseFulfilledResult<LxApiPage<LxApiCollection>> => result.status === 'fulfilled')
@@ -411,6 +413,9 @@ export const lxBrowse = {
     chartTracks: lxApiChartTracks,
     playlistSquare: lxApiPlaylistSquare,
     playlistTracks: lxApiPlaylistTracks,
+    albumSquare: lxApiAlbumSquare,
+    albumTracks: lxApiAlbumTracks,
+    radioPrograms: lxApiRadioPrograms,
     searchSongs: lxApiSearchSongs,
     toSong: toUnifiedSong,
     toCollection: toProviderCollection,

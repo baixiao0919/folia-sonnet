@@ -163,10 +163,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     } else if (scene === 'accountless') {
         headline = label;
         note = t('home.providerNoAccount');
-        // 洛雪：选中之后直接给一个进工作台的按钮；其余免账号来源（模组音源）保持原样。
-        actions = providerId === 'lxmusic'
-            ? [{ label: t('home.lxWorkspaceOpen'), primary: true, onClick: () => openLxWorkspace() }, ...switchAction]
-            : switchAction;
+        // 免账号来源（洛雪、模组音源）只留「换一个平台」：洛雪点这一行就已经进工作台了，
+        // 底下再摆一个「打开洛雪」纯属重复。
+        actions = switchAction;
     } else {
         const key = sceneHeadline(scene, inBrowser);
         // 'title'：平台自己的登录标题；没有声明的平台是「登录到 平台名」。

@@ -214,6 +214,11 @@ export const LxSourcePanel: React.FC<LxSourcePanelProps> = ({ onChanged }) => {
             <p className="text-[10.5px] leading-4 text-[color:var(--lx-faint)]">
                 音源脚本在本应用内直接执行，与洛雪桌面端同一个信任模型：只导入你信得过的脚本。
             </p>
+
+            <p className="text-[10px] leading-4 text-[color:var(--lx-faint)]">
+                当前安装包 v{typeof __APP_VERSION__ === 'undefined' ? '?' : __APP_VERSION__}
+                {typeof __COMMIT_HASH__ === 'undefined' ? '' : ` · 构建 ${__COMMIT_HASH__.slice(0, 7)}`}
+            </p>
         </div>
     );
 };

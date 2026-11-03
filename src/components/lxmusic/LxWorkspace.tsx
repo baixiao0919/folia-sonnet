@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Play, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Play, Plus, RefreshCw, Search } from 'lucide-react';
 import type { Theme, UnifiedSong } from '../../types';
 import type { ProviderCollection } from '../../types/onlineMusic';
 import { useLxWorkspaceStore, type LxWorkspaceTab } from '../../stores/useLxWorkspaceStore';
@@ -9,6 +9,7 @@ import type { LxPlatformKey } from '../../services/onlineMusic/lxmusic/lxTypes';
 import {
     LX_PUBLIC_PLATFORMS,
     type LxApiChart,
+    type LxApiRadioProgram,
     type LxPublicPlatform,
 } from '../../services/onlineMusic/lxmusic/lxPublicApi';
 import { LxTrackList } from './LxTrackList';
@@ -17,27 +18,31 @@ import { errorText, formatCount, formatDate, platformBadge, platformOfSong } fro
 import './lxWorkspace.css';
 
 // src/components/lxmusic/LxWorkspace.tsx
-// 洛雪工作台：一页把客户端那套东西搬过来。
-//   歌单 —— 每个平台的歌单广场（封面 / 作者 / 播放量），点开是曲目表；
-//   榜单 —— 平台下的各个排行榜，左边选榜右边是歌；
-//   搜索 —— 三家一起搜，结果交替排列；
-//   音源 —— 导入 / 启用 / 删除 LX 音源脚本。
-// 页面挂在应用级浮层上，播放与加入队列直接复用搜索结果那两条回调。
+// 洛雪工作台：照洛雪移动端的「歌单」页重排。
+//   头部一行标题 + 音源入口，下面一条分段胶囊（歌单 / 电台 / 专辑 / 榜单 / 本地 / 搜索），
+//   再下面一排平台按钮（网易云 / QQ音乐 / 酷狗 / 酷我）——换平台就换这一页的内容。
+//   歌单、专辑、电台都是封面网格，点开是曲目表；榜单左榜右歌；搜索四家一起搜。
 
-const TABS: ReadonlyArray<{ key: LxWorkspaceTab; label: string }> = [
+const PILLS: ReadonlyArray<{ key: LxWorkspaceTab; label: string }> = [
     { key: 'playlist', label: '歌单' },
+    { key: 'radio', label: '电台' },
+    { key: 'album', label: '专辑' },
     { key: 'chart', label: '榜单' },
+    { key: 'local', label: '本地' },
     { key: 'search', label: '搜索' },
-    { key: 'source', label: '音源' },
 ];
+
+/** 这两页不分平台，平台按钮跟着藏起来。 */
+const GLOBAL_TABS: ReadonlyArray<LxWorkspaceTab> = ['search', 'local', 'source'];
 
 // 一页 30：酷狗的歌单广场接口固定每页 30 条，页大小对不上的话翻页会漏歌。
 const PAGE_SIZE = 30;
 const TRACK_PAGE_SIZE = 60;
-/** 搜索时每个平台各取多少（三家交替，一屏大概 3 倍条数）。 */
+/** 搜索时每个平台各取多少（四家交替，一屏大概 4 倍条数）。 */
 const SEARCH_PAGE_SIZE = 24;
 
 type DetailView = {
+    kind: 'playlist' | 'album';
     platform: LxPublicPlatform;
     id: string;
     title: string;
@@ -55,7 +60,7 @@ type LxWorkspaceProps = {
 
 const platformOfCollection = (collection: ProviderCollection, fallback: LxPublicPlatform): LxPublicPlatform => {
     const raw = collection.providerData?.platform;
-    if (raw === 'wy' || raw === 'kg' || raw === 'kw') return raw;
+    if (raw === 'wy' || raw === 'kg' || raw === 'kw' || raw === 'tx') return raw;
     return fallback;
 };
 
@@ -64,11 +69,15 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
     const setTab = useLxWorkspaceStore((state) => state.setTab);
 
     const [platform, setPlatform] = useState<LxPublicPlatform>('wy');
+    // 回调里读当前平台：请求回来时若用户已经换了平台，就别把旧结果写进去。
     const platformRef = useRef(platform);
     platformRef.current = platform;
+    const tabRef = useRef(tab);
+    tabRef.current = tab;
 
     // 音源变动后重算「能不能放」的提示（store 不是响应式的，用一个计数逼一次重渲染）。
     const [, bumpSourceTick] = useState(0);
+    const sourceCount = lxSourceStore.getSources().filter((source) => source.enabled).length;
     const handleSourceChanged = useCallback(() => bumpSourceTick((prev) => prev + 1), []);
     const [refreshTick, setRefreshTick] = useState(0);
 
@@ -81,11 +90,11 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
         playHintTimer.current = window.setTimeout(() => setPlayHint(null), durationMs);
     }, []);
     const handlePlay = useCallback((song: UnifiedSong) => {
-        // 网易云没有免费直链，没导入网易云音源时点播放只会换来一句「洛雪未返回音频」，
+        // 网易云 / QQ 没有免费直链，没导入对应音源时点播放只会换来一句「洛雪未返回音频」，
         // 不如当场说清楚缺什么。
         const owner = platformOfSong(song);
-        if (owner === 'wy' && !lxSourceStore.canResolve('wy', 'musicUrl')) {
-            showHint('网易云的歌要先去「音源」导入网易云音源', 3600);
+        if ((owner === 'wy' || owner === 'tx') && !lxSourceStore.canResolve(owner as LxPlatformKey, 'musicUrl')) {
+            showHint(`${platformBadge(owner).label}的歌要先去「音源」导入对应音源`, 3600);
             return;
         }
         onPlayTrack(song);
@@ -95,14 +104,15 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
         if (playHintTimer.current) window.clearTimeout(playHintTimer.current);
     }, []);
 
-    // 歌单广场
+    // 歌单 / 专辑 / 电台 共用一个列表状态
     const [collections, setCollections] = useState<ProviderCollection[]>([]);
-    const [collectionsLoading, setCollectionsLoading] = useState(false);
-    const [collectionsHasMore, setCollectionsHasMore] = useState(false);
-    const [collectionsOffset, setCollectionsOffset] = useState(0);
-    const [collectionsError, setCollectionsError] = useState<string | null>(null);
+    const [programs, setPrograms] = useState<LxApiRadioProgram[]>([]);
+    const [browseLoading, setBrowseLoading] = useState(false);
+    const [browseHasMore, setBrowseHasMore] = useState(false);
+    const [browseOffset, setBrowseOffset] = useState(0);
+    const [browseError, setBrowseError] = useState<string | null>(null);
 
-    // 歌单 / 榜单里的曲目
+    // 歌单 / 专辑里的曲目
     const [detail, setDetail] = useState<DetailView | null>(null);
     const [detailSongs, setDetailSongs] = useState<UnifiedSong[]>([]);
     const [detailLoading, setDetailLoading] = useState(false);
@@ -126,33 +136,44 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
     const [searchHasMore, setSearchHasMore] = useState(false);
     const [searchError, setSearchError] = useState<string | null>(null);
 
-    // ------------------------------------------------------------ 歌单广场
+    // ------------------------------------------------------------ 歌单 / 专辑 / 电台
 
-    const loadCollections = useCallback(async (target: LxPublicPlatform, offset: number, append: boolean) => {
-        setCollectionsLoading(true);
-        if (!append) setCollectionsError(null);
+    const loadBrowse = useCallback(async (targetPlatform: LxPublicPlatform, targetTab: LxWorkspaceTab, offset: number, append: boolean) => {
+        setBrowseLoading(true);
+        if (!append) setBrowseError(null);
         try {
-            const page = await lxBrowse.playlistSquare(target, PAGE_SIZE, offset);
-            if (platformRef.current !== target) return;
+            if (targetTab === 'radio') {
+                const page = await lxBrowse.radioPrograms(targetPlatform, PAGE_SIZE, offset);
+                if (platformRef.current !== targetPlatform || tabRef.current !== targetTab) return;
+                setPrograms((prev) => (append ? [...prev, ...page.items] : page.items));
+                setBrowseOffset(offset + page.items.length);
+                setBrowseHasMore(page.hasMore);
+                return;
+            }
+            const page = targetTab === 'album'
+                ? await lxBrowse.albumSquare(targetPlatform, PAGE_SIZE, offset)
+                : await lxBrowse.playlistSquare(targetPlatform, PAGE_SIZE, offset);
+            if (platformRef.current !== targetPlatform || tabRef.current !== targetTab) return;
             const items = page.items.map(lxBrowse.toCollection);
             setCollections((prev) => (append ? [...prev, ...items] : items));
-            setCollectionsOffset(offset + page.items.length);
-            setCollectionsHasMore(page.hasMore);
+            setBrowseOffset(offset + page.items.length);
+            setBrowseHasMore(page.hasMore);
         } catch (error) {
-            if (platformRef.current !== target) return;
-            setCollectionsError(`歌单读取失败：${errorText(error)}`);
+            if (platformRef.current !== targetPlatform) return;
+            setBrowseError(`${targetTab === 'album' ? '专辑' : targetTab === 'radio' ? '电台' : '歌单'}读取失败：${errorText(error)}`);
         } finally {
-            setCollectionsLoading(false);
+            setBrowseLoading(false);
         }
     }, []);
 
     useEffect(() => {
-        if (tab !== 'playlist') return;
+        if (tab !== 'playlist' && tab !== 'album' && tab !== 'radio') return;
         setCollections([]);
-        setCollectionsOffset(0);
-        setCollectionsHasMore(false);
-        void loadCollections(platform, 0, false);
-    }, [tab, platform, refreshTick, loadCollections]);
+        setPrograms([]);
+        setBrowseOffset(0);
+        setBrowseHasMore(false);
+        void loadBrowse(platform, tab, 0, false);
+    }, [tab, platform, refreshTick, loadBrowse]);
 
     // ------------------------------------------------------------ 榜单
 
@@ -194,21 +215,9 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
         return () => { cancelled = true; };
     }, [tab, platform, chartId]);
 
-    // ------------------------------------------------------------ 歌单曲目
+    // ------------------------------------------------------------ 曲目表
 
-    const openPlaylist = useCallback(async (collection: ProviderCollection) => {
-        const owner = platformOfCollection(collection, platform);
-        // 卡片 id 是带平台前缀的 `wy:123`；调接口要用原生 id（providerData 里留着）。
-        const nativeId = typeof collection.providerData?.nativeId === 'string'
-            ? collection.providerData.nativeId
-            : String(collection.id);
-        const view: DetailView = {
-            platform: owner,
-            id: nativeId,
-            title: collection.name,
-            subtitle: [collection.creator?.nickname, formatDate(collection.updatedAt)].filter(Boolean).join(' · '),
-            coverUrl: collection.coverUrl,
-        };
+    const openCollection = useCallback(async (view: DetailView) => {
         setDetail(view);
         setDetailSongs([]);
         setDetailHasMore(false);
@@ -216,7 +225,9 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
         setDetailError(null);
         setDetailLoading(true);
         try {
-            const page = await lxBrowse.playlistTracks(owner, view.id, TRACK_PAGE_SIZE, 0);
+            const page = view.kind === 'album'
+                ? await lxBrowse.albumTracks(view.platform, view.id, TRACK_PAGE_SIZE, 0)
+                : await lxBrowse.playlistTracks(view.platform, view.id, TRACK_PAGE_SIZE, 0);
             setDetailSongs(page.items.map(lxBrowse.toSong));
             setDetailOffset(page.items.length);
             setDetailHasMore(page.hasMore);
@@ -225,13 +236,32 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
         } finally {
             setDetailLoading(false);
         }
-    }, [platform]);
+    }, []);
+
+    const openPlaylistCard = useCallback((collection: ProviderCollection) => {
+        const owner = platformOfCollection(collection, platform);
+        // 卡片 id 是带平台前缀的 `wy:123`；调接口要用原生 id（providerData 里留着）。
+        const nativeId = typeof collection.providerData?.nativeId === 'string'
+            ? collection.providerData.nativeId
+            : String(collection.id);
+        const kind = collection.type === 'album' ? 'album' : 'playlist';
+        void openCollection({
+            kind,
+            platform: owner,
+            id: nativeId,
+            title: collection.name,
+            subtitle: [collection.creator?.nickname, formatDate(collection.updatedAt)].filter(Boolean).join(' · '),
+            coverUrl: collection.coverUrl,
+        });
+    }, [openCollection, platform]);
 
     const loadMoreDetail = useCallback(async () => {
         if (!detail || detailLoading) return;
         setDetailLoading(true);
         try {
-            const page = await lxBrowse.playlistTracks(detail.platform, detail.id, TRACK_PAGE_SIZE, detailOffset);
+            const page = detail.kind === 'album'
+                ? await lxBrowse.albumTracks(detail.platform, detail.id, TRACK_PAGE_SIZE, detailOffset)
+                : await lxBrowse.playlistTracks(detail.platform, detail.id, TRACK_PAGE_SIZE, detailOffset);
             setDetailSongs((prev) => [...prev, ...page.items.map(lxBrowse.toSong)]);
             setDetailOffset((prev) => prev + page.items.length);
             setDetailHasMore(page.hasMore);
@@ -251,7 +281,7 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
         if (!append) setSearchError(null);
         const offset = append ? searchOffset : 0;
         try {
-            // limit 是「每个平台各取多少」，所以一页最多 3 倍条数。
+            // limit 是「每个平台各取多少」，所以一页最多 4 倍条数。
             const page = await lxmusicProvider.search?.searchSongs?.(trimmed, SEARCH_PAGE_SIZE, offset);
             if (!page) {
                 setSearchError('搜索没有返回结果。');
@@ -270,44 +300,44 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
 
     // ------------------------------------------------------------ 渲染片段
 
-    // 酷我 / 酷狗有公开的免费直链（付费 / 独家曲目才需要音源），网易云只能靠导入的音源。
+    // 酷我 / 酷狗有公开的免费直链（付费 / 独家曲目才需要音源），网易云与 QQ 只能靠导入的音源。
     const hasFreeDirect = (target: string): boolean => target === 'kw' || target === 'kg';
 
     const canPlayOn = (target: string): boolean => (
         hasFreeDirect(target) || lxSourceStore.canResolve(target as LxPlatformKey, 'musicUrl')
     );
 
-    const platformChips = (
-        <div className="lx-chips">
+    const showPlatformRow = !GLOBAL_TABS.includes(tab);
+
+    const platformRow = showPlatformRow ? (
+        <div className="lx-platforms" role="tablist" aria-label="平台">
             {LX_PUBLIC_PLATFORMS.map((item) => (
                 <button
                     key={item.key}
                     type="button"
-                    className="lx-chip"
+                    role="tab"
+                    aria-selected={platform === item.key}
+                    className="lx-platform"
                     data-active={platform === item.key}
-                    onClick={() => { setPlatform(item.key); setDetail(null); }}
+                    style={{ '--lx-platform-color': item.color } as React.CSSProperties}
+                    onClick={() => {
+                        if (platform === item.key) return;
+                        setPlatform(item.key);
+                        setDetail(null);
+                    }}
                 >
-                    <span className="lx-dot" style={{ background: item.color }} />
+                    <span className="lx-platform-mark" style={{ background: item.color }}>{item.label.slice(0, 1)}</span>
                     {item.label}
                 </button>
             ))}
-        </div>
-    );
-
-    const sourceWarning = !canPlayOn(platform) ? (
-        <div className="lx-notice" data-kind="warn">
-            还没有能处理{platformBadge(platform).label}的音源：这一家的歌能搜、能看，但播放要等你在「音源」里导入对应平台的音源。
-        </div>
-    ) : platform === 'kg' && !lxSourceStore.canResolve('kg', 'musicUrl') ? (
-        <div className="lx-notice" data-kind="warn">
-            酷狗的免费曲目可以直接放；付费 / 独家曲目要等你在「音源」里导入酷狗音源。
         </div>
     ) : null;
 
     const renderCard = (collection: ProviderCollection) => {
         const count = formatCount(collection.playCount);
+        const meta = [collection.creator?.nickname, formatDate(collection.updatedAt)].filter(Boolean).join(' · ');
         return (
-            <button type="button" key={String(collection.id)} className="lx-card" onClick={() => void openPlaylist(collection)}>
+            <button type="button" key={String(collection.id)} className="lx-card" onClick={() => openPlaylistCard(collection)}>
                 <div className="lx-cover">
                     {collection.coverUrl
                         ? <img src={collection.coverUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />
@@ -315,35 +345,66 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
                     {count ? <span className="lx-cover-count"><Play size={9} />{count}</span> : null}
                 </div>
                 <div className="lx-card-title">{collection.name}</div>
-                <div className="lx-card-meta">
-                    {[collection.creator?.nickname, formatDate(collection.updatedAt)].filter(Boolean).join(' · ') || `${collection.trackCount ?? 0} 首`}
-                </div>
+                {meta ? <div className="lx-card-meta">{meta}</div> : null}
             </button>
         );
     };
 
-    const renderPlaylistTab = () => {
+    const renderProgram = (program: LxApiRadioProgram) => (
+        <button
+            type="button"
+            key={program.id}
+            className="lx-card"
+            onClick={() => handlePlay(lxBrowse.toSong(program.song))}
+        >
+            <div className="lx-cover">
+                {program.coverUrl
+                    ? <img src={program.coverUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />
+                    : <span>{program.name.slice(0, 1)}</span>}
+                <span className="lx-cover-count">电台</span>
+            </div>
+            <div className="lx-card-title">{program.name}</div>
+            {program.djName ? <div className="lx-card-meta">{program.djName}</div> : null}
+        </button>
+    );
+
+    /** 空状态按「这一页 × 这一家」说清楚，别拿同一句话糊过去。 */
+    const emptyText = (): string => {
+        if (tab === 'radio') {
+            return platform === 'wy'
+                ? '网易云暂时没返回电台节目。'
+                : `${platformBadge(platform).label}没有公开的电台接口，换到网易云看看。`;
+        }
+        if (tab === 'album') {
+            return platform === 'wy' || platform === 'kg'
+                ? '这家暂时没返回新碟，稍后再试。'
+                : `${platformBadge(platform).label}没有公开的新碟列表，换到网易云或酷狗看看。`;
+        }
+        return '这个平台暂时没有返回歌单，换一家看看。';
+    };
+
+    const renderBrowseTab = () => {
         if (detail) {
             return (
                 <>
-                    <div className="lx-track-head">
-                        <button type="button" className="lx-icon-btn" onClick={() => setDetail(null)} aria-label="返回歌单">
-                            <ArrowLeft size={16} />
-                        </button>
-                        <div className="lx-cover">
+                    <div className="lx-detail-head">
+                        <div className="lx-cover lx-detail-cover">
                             {detail.coverUrl
                                 ? <img src={detail.coverUrl} alt="" referrerPolicy="no-referrer" />
                                 : <span>{detail.title.slice(0, 1)}</span>}
                         </div>
-                        <div className="lx-track-head-text">
-                            <div className="lx-track-head-title">{detail.title}</div>
-                            <div className="lx-track-head-sub">
-                                {detail.subtitle || `${detailSongs.length} 首`}
+                        <div className="lx-detail-text">
+                            <div className="lx-detail-kind">
+                                {detail.kind === 'album' ? '专辑' : '歌单'} · {platformBadge(detail.platform).label}
                             </div>
+                            <div className="lx-detail-title">{detail.title}</div>
+                            <div className="lx-detail-sub">{detail.subtitle || `${detailSongs.length} 首`}</div>
                         </div>
+                    </div>
+                    <div className="lx-detail-actions">
                         <button
                             type="button"
-                            className="lx-btn-ghost"
+                            className="lx-btn lx-btn-play"
                             disabled={detailSongs.length === 0}
                             onClick={() => {
                                 const [first, ...rest] = detailSongs;
@@ -351,19 +412,20 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
                                 if (first) handlePlay(first);
                             }}
                         >
-                            播放全部
+                            <Play size={13} fill="currentColor" />播放全部
                         </button>
+                        <button type="button" className="lx-btn-ghost" onClick={() => setDetail(null)}>返回列表</button>
                     </div>
                     {!canPlayOn(detail.platform) ? (
                         <div className="lx-notice" data-kind="warn">
-                            没有{platformBadge(detail.platform).label}音源，这些歌可能放不出来。
+                            没有{platformBadge(detail.platform).label}音源，这些歌点开会放不出来。
                         </div>
                     ) : null}
                     {detailError ? <div className="lx-notice" data-kind="warn">{detailError}</div> : null}
                     {detailLoading && detailSongs.length === 0 ? (
                         <p className="lx-empty">正在读取曲目…</p>
                     ) : detailSongs.length === 0 ? (
-                        <p className="lx-empty">这个歌单没有读到曲目。</p>
+                        <p className="lx-empty">没有读到曲目。</p>
                     ) : (
                         <LxTrackList songs={detailSongs} onPlay={handlePlay} onQueue={onAddToQueue} />
                     )}
@@ -378,29 +440,28 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
             );
         }
 
+        const empty = tab === 'radio' ? programs.length === 0 : collections.length === 0;
         return (
             <>
-                {platformChips}
-                {sourceWarning}
-                {collectionsError ? <div className="lx-notice" data-kind="warn">{collectionsError}</div> : null}
-                {collectionsLoading && collections.length === 0 ? (
-                    <p className="lx-empty">正在读取歌单广场…</p>
-                ) : collections.length === 0 ? (
-                    <p className="lx-empty">
-                        {platform === 'kw' ? '酷我没有公开的歌单广场，换到网易云或酷狗看看。' : '这个平台暂时没有返回歌单。'}
-                    </p>
+                {browseError ? <div className="lx-notice" data-kind="warn">{browseError}</div> : null}
+                {browseLoading && empty ? (
+                    <p className="lx-empty">正在读取{tab === 'album' ? '新碟' : tab === 'radio' ? '电台' : '歌单'}…</p>
+                ) : empty ? (
+                    <p className="lx-empty">{emptyText()}</p>
                 ) : (
-                    <div className="lx-grid">{collections.map(renderCard)}</div>
+                    <div className="lx-grid">
+                        {tab === 'radio' ? programs.map(renderProgram) : collections.map(renderCard)}
+                    </div>
                 )}
-                {collectionsHasMore ? (
+                {browseHasMore ? (
                     <div className="lx-more">
                         <button
                             type="button"
                             className="lx-btn-ghost"
-                            disabled={collectionsLoading}
-                            onClick={() => void loadCollections(platform, collectionsOffset, true)}
+                            disabled={browseLoading}
+                            onClick={() => void loadBrowse(platform, tab, browseOffset, true)}
                         >
-                            {collectionsLoading ? '加载中…' : '加载更多'}
+                            {browseLoading ? '加载中…' : '加载更多'}
                         </button>
                     </div>
                 ) : null}
@@ -412,10 +473,8 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
         const activeChart = charts.find((chart) => chart.id === chartId);
         return (
             <>
-                {platformChips}
-                {sourceWarning}
                 {chartError ? <div className="lx-notice" data-kind="warn">{chartError}</div> : null}
-                <div className="lx-chart-layout" style={{ marginTop: 12 }}>
+                <div className="lx-chart-layout">
                     <div className="lx-chart-rail">
                         {charts.map((chart) => (
                             <button
@@ -431,7 +490,7 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
                     </div>
                     <div>
                         {activeChart ? (
-                            <div className="lx-track-head-title" style={{ fontSize: 13.5, margin: '2px 0 8px' }}>
+                            <div className="lx-chart-title">
                                 {platformBadge(platform).label} · {activeChart.name}
                             </div>
                         ) : null}
@@ -456,7 +515,7 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     onKeyDown={(event) => { if (event.key === 'Enter') void runSearch(query, false); }}
-                    placeholder="搜歌名 / 歌手 / 专辑（三家一起搜）"
+                    placeholder="搜歌名 / 歌手 / 专辑（四家一起搜）"
                     autoCapitalize="off"
                     autoCorrect="off"
                     spellCheck={false}
@@ -468,13 +527,11 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
             {searchError ? <div className="lx-notice" data-kind="warn">{searchError}</div> : null}
             {searchSongs.length === 0 ? (
                 <p className="lx-empty">
-                    {submittedQuery ? `没搜到「${submittedQuery}」。` : '输入关键词，网易云 / 酷狗 / 酷我的结果会一起列出来。'}
+                    {submittedQuery ? `没搜到「${submittedQuery}」。` : '输入关键词，网易云 / QQ / 酷狗 / 酷我的结果会一起列出来。'}
                 </p>
             ) : (
                 <>
-                    <div className="lx-track-head-sub" style={{ margin: '12px 2px 4px' }}>
-                        「{submittedQuery}」的结果 · {searchSongs.length} 首
-                    </div>
+                    <div className="lx-result-head">「{submittedQuery}」的结果 · {searchSongs.length} 首</div>
                     <LxTrackList songs={searchSongs} onPlay={handlePlay} onQueue={onAddToQueue} />
                 </>
             )}
@@ -486,6 +543,18 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
                 </div>
             ) : null}
         </>
+    );
+
+    const renderLocalTab = () => (
+        <div className="lx-blank">
+            <Search size={26} strokeWidth={1.4} />
+            <p className="lx-blank-title">本地音乐不在这儿</p>
+            <p className="lx-blank-text">
+                洛雪的「本地」读的是手机里的音频文件；这个 App 的本地曲库在自己那一页。
+                这里先留个说明，等本地扫描接进洛雪再补上。
+            </p>
+            <button type="button" className="lx-btn-ghost" onClick={onClose}>回到 Folia</button>
+        </div>
     );
 
     return (
@@ -501,13 +570,25 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
             aria-label="洛雪"
         >
             <header className="lx-header">
-                <div className="lx-header-row">
+                <div className="lx-head-bar">
                     <button type="button" className="lx-icon-btn" onClick={onClose} aria-label="关闭洛雪">
                         <ArrowLeft size={18} />
                     </button>
-                    <span className="lx-title">洛雪</span>
-                    <span className="lx-badge">{lxSourceStore.getSources().filter((source) => source.enabled).length} 个音源</span>
+                    <div className="lx-head-title">
+                        <span className="lx-brand">洛雪</span>
+                        <span className="lx-brand-sub">LX MUSIC</span>
+                    </div>
                     <div style={{ flex: '1 1 auto' }} />
+                    <button
+                        type="button"
+                        className="lx-source-btn"
+                        data-active={tab === 'source'}
+                        onClick={() => setTab('source')}
+                        aria-label="音源"
+                    >
+                        <Plus size={13} />
+                        音源{sourceCount > 0 ? <b>{sourceCount}</b> : null}
+                    </button>
                     <button
                         type="button"
                         className="lx-icon-btn"
@@ -521,25 +602,33 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
                         <RefreshCw size={15} />
                     </button>
                 </div>
-                <nav className="lx-tabs" aria-label="洛雪页签">
-                    {TABS.map((item) => (
+
+                <nav className="lx-seg" aria-label="洛雪页签">
+                    {PILLS.map((item) => (
                         <button
                             key={item.key}
                             type="button"
-                            className="lx-tab"
+                            className="lx-seg-item"
                             data-active={tab === item.key}
-                            onClick={() => setTab(item.key)}
+                            onClick={() => {
+                                if (tab === item.key) return;
+                                setDetail(null);
+                                setTab(item.key);
+                            }}
                         >
                             {item.label}
                         </button>
                     ))}
                 </nav>
+
+                {platformRow}
             </header>
 
             <div className="lx-body">
-                {tab === 'playlist' ? renderPlaylistTab() : null}
+                {tab === 'playlist' || tab === 'album' || tab === 'radio' ? renderBrowseTab() : null}
                 {tab === 'chart' ? renderChartTab() : null}
                 {tab === 'search' ? renderSearchTab() : null}
+                {tab === 'local' ? renderLocalTab() : null}
                 {tab === 'source' ? <LxSourcePanel onChanged={handleSourceChanged} /> : null}
             </div>
 
