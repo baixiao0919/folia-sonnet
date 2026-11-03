@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* 安卓手机适配样式表（界面缩放的根字号、播放条命中区在安卓上让路等）。
+   此前这份文件从未被任何入口 import，导致：① 界面缩放滑条设了值但整屏不缩；
+   ② 安卓上播放条那条铺满下缘的悬停命中区没被关掉，盖住播放/暂停按钮、点不动。
+   见 services/androidPhoneLayout.ts 与 styles/androidPhoneFit.css 顶部注释。 */
+@import "./styles/androidPhoneFit.css";
+
 /* Tailwind 自动扫描整个仓库找类名，而且在 dev 服务器的主线程上同步扫。dev/prototypes 里是独立的原型页面，
    不用 Tailwind，却可能放着几 MB 的单行数据文件（fog-write/strokes.js 一行 4.4 MB），类名提取器碰上
    这种文件要扫好几分钟，期间 dev 服务器一个请求都不回，页面和 Electron 窗口就一直停在开屏。 */
