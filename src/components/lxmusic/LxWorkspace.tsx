@@ -72,6 +72,19 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
     const handleSourceChanged = useCallback(() => bumpSourceTick((prev) => prev + 1), []);
     const [refreshTick, setRefreshTick] = useState(0);
 
+    // 播放回执：播放器在浮层底下，点完不给一句反馈会以为没反应。
+    const [playHint, setPlayHint] = useState<string | null>(null);
+    const playHintTimer = useRef<number | null>(null);
+    const handlePlay = useCallback((song: UnifiedSong) => {
+        onPlayTrack(song);
+        setPlayHint(`正在播放 · ${song.name}`);
+        if (playHintTimer.current) window.clearTimeout(playHintTimer.current);
+        playHintTimer.current = window.setTimeout(() => setPlayHint(null), 2600);
+    }, [onPlayTrack]);
+    useEffect(() => () => {
+        if (playHintTimer.current) window.clearTimeout(playHintTimer.current);
+    }, []);
+
     // 歌单广场
     const [collections, setCollections] = useState<ProviderCollection[]>([]);
     const [collectionsLoading, setCollectionsLoading] = useState(false);
@@ -318,7 +331,7 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
                             onClick={() => {
                                 const [first, ...rest] = detailSongs;
                                 rest.forEach((song) => onAddToQueue(song));
-                                if (first) onPlayTrack(first);
+                                if (first) handlePlay(first);
                             }}
                         >
                             播放全部
@@ -335,7 +348,7 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
                     ) : detailSongs.length === 0 ? (
                         <p className="lx-empty">这个歌单没有读到曲目。</p>
                     ) : (
-                        <LxTrackList songs={detailSongs} onPlay={onPlayTrack} onQueue={onAddToQueue} />
+                        <LxTrackList songs={detailSongs} onPlay={handlePlay} onQueue={onAddToQueue} />
                     )}
                     {detailHasMore ? (
                         <div className="lx-more">
@@ -410,7 +423,7 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
                         ) : chartSongs.length === 0 ? (
                             <p className="lx-empty">这个榜暂时没有曲目。</p>
                         ) : (
-                            <LxTrackList songs={chartSongs} onPlay={onPlayTrack} onQueue={onAddToQueue} />
+                            <LxTrackList songs={chartSongs} onPlay={handlePlay} onQueue={onAddToQueue} />
                         )}
                     </div>
                 </div>
@@ -445,7 +458,7 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
                     <div className="lx-track-head-sub" style={{ margin: '12px 2px 4px' }}>
                         「{submittedQuery}」的结果 · {searchSongs.length} 首
                     </div>
-                    <LxTrackList songs={searchSongs} onPlay={onPlayTrack} onQueue={onAddToQueue} />
+                    <LxTrackList songs={searchSongs} onPlay={handlePlay} onQueue={onAddToQueue} />
                 </>
             )}
             {searchHasMore ? (
@@ -512,6 +525,8 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
                 {tab === 'search' ? renderSearchTab() : null}
                 {tab === 'source' ? <LxSourcePanel onChanged={handleSourceChanged} /> : null}
             </div>
+
+            {playHint ? <div className="lx-toast" role="status">{playHint}</div> : null}
         </div>
     );
 };
