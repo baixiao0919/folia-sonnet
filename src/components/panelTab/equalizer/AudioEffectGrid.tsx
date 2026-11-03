@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+    AUDIO_CONSOLE_EFFECT_IDS,
     AUDIO_EFFECT_CONTROL_MAP,
     audioEffectToSliderPosition,
     formatAudioEffectValue,
@@ -25,15 +26,15 @@ const SLIDER_POSITIONS = 1000;
 
 type AudioEffectGridProps = {
     effects: AudioEffectSettings;
-    /** 画哪几项，按给的顺序。 */
-    ids: readonly AudioEffectId[];
+    /** 画哪几项，按给的顺序；不传就是调音台那两项（别让漏传变成一次 undefined.map）。 */
+    ids?: readonly AudioEffectId[];
     onEffectChange: (id: AudioEffectId, value: number) => void;
     onCommit: () => void;
     /** The sliders are out of reach (inert); the names and the values still read. */
     readOnly?: boolean;
 };
 
-const AudioEffectGrid: React.FC<AudioEffectGridProps> = ({ effects, ids, onEffectChange, onCommit, readOnly = false }) => {
+const AudioEffectGrid: React.FC<AudioEffectGridProps> = ({ effects, ids = AUDIO_CONSOLE_EFFECT_IDS, onEffectChange, onCommit, readOnly = false }) => {
     const { t } = useTranslation();
 
     return (

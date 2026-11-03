@@ -46,6 +46,7 @@ export const ClassicSettingsPanel: React.FC<VisualizerSettingsPanelProps<Classic
         breathingFloatMultiplier: clampClassicBreathingFloatMultiplier(
             classicTuning.breathingFloatMultiplier ?? DEFAULT_CLASSIC_TUNING.breathingFloatMultiplier,
         ),
+        avoidOverlap: classicTuning.avoidOverlap ?? DEFAULT_CLASSIC_TUNING.avoidOverlap ?? false,
         useLegacyLayout: classicTuning.useLegacyLayout ?? DEFAULT_CLASSIC_TUNING.useLegacyLayout ?? false,
         wordSpacing: clampClassicWordSpacing(
             classicTuning.wordSpacing ?? DEFAULT_CLASSIC_TUNING.wordSpacing ?? 0.7
