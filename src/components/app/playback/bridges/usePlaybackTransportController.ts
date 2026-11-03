@@ -13,6 +13,7 @@ import type { OnlineFailure } from '../../../../services/onlineMusic/failure/onl
 import { onlineFailureToast } from '../source/onlineFailureToast';
 import { hifiTransport, isHifiRoute } from '../../../../services/hifi/hifiPlayback';
 import { resumeHifiPlayback } from '../../../hifi/hifiRouteTransport';
+import { armPauseGuard } from '../pauseGuard';
 
 // src/components/app/playback/bridges/usePlaybackTransportController.ts
 
@@ -213,6 +214,7 @@ export function usePlaybackTransportController({
         if (isHifiRoute()) {
             void hifiTransport.pause();
             setPlayerState(PlayerState.PAUSED);
+            armPauseGuard();
             return;
         }
 
@@ -221,6 +223,7 @@ export function usePlaybackTransportController({
             syncStageLyricsClock(currentSyntheticTime, duration, PlayerState.PAUSED, stageLyricsClockRef.current.startTimeSec);
             currentTime.set(currentSyntheticTime);
             setPlayerState(PlayerState.PAUSED);
+            armPauseGuard();
             return;
         }
 
@@ -277,11 +280,15 @@ export function usePlaybackTransportController({
         };
         if (isSounding && playbackFade.fadeOutThen(settleDeferredPause)) {
             setPlayerState(PlayerState.PAUSED);
+            // 淡出结束时才真正 pause(audioRef)；万一那一下落在别的元素上（切歌 / 淡入淡出中途），
+            // 这枚定时器保证「界面说暂停了」就真的没有声音。
+            armPauseGuard();
             return;
         }
 
         if (settlePause()) {
             setPlayerState(PlayerState.PAUSED);
+            armPauseGuard();
         }
     }, [activePlaybackContext, audioRef, audioSrc, currentTime, duration, getSyntheticStageLyricsTime, getTargetPlaybackVolume, isNowPlayingStageActive, isTransitionAudible, pauseDuringTransition, setPlayerState, stageActiveEntryKind, stageLyricsClockRef, syncOutputGain, syncStageLyricsClock]);
 

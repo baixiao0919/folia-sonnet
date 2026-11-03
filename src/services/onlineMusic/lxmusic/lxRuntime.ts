@@ -667,8 +667,15 @@ export const loadLxSource = (rawScript: string, meta: LxSourceMeta): LxLoadedSou
             }
             // LX 自定义源两种写法都支持：①回调式 on('request', (params, callback) => callback(null, result))
             // （桌面端最常用，内部通常要等一次 HTTP 回来才回调）；②返回式 on('request', async (params) => result)。
-            // 回调式 handler 的返回值是 undefined，必须一直等回调，早先 0ms 就放弃会导致「取播放地址永远为空」。
-            const HANDLER_TIMEOUT_MS = 20000;
+            // 播放地址现在是并发竞速的：慢源不该拖着整首歌，外层（lxSourceStore）还会再套一层
+            // 9 秒的硬超时。这里留 12 秒，够一次「先取签名再取地址」的两跳，又不会让死源无限挂着。
+            const HANDLER_TIMEOUT_MS = 12000;
+            const timeoutFor = (payload: unknown): number => {
+                const action = (payload as { action?: string } | null)?.action;
+                if (action === 'lyric') return 20000;
+                if (action === 'pic') return 8000;
+                return HANDLER_TIMEOUT_MS;
+            };
             const callHandler = (handler: (payload: unknown) => unknown, payload: unknown): Promise<unknown> => (
                 new Promise((resolve) => {
                     let settled = false;
@@ -679,7 +686,7 @@ export const loadLxSource = (rawScript: string, meta: LxSourceMeta): LxLoadedSou
                         if (timer !== null) window.clearTimeout(timer);
                         resolve(value);
                     };
-                    timer = window.setTimeout(() => finish(undefined), HANDLER_TIMEOUT_MS);
+                    timer = window.setTimeout(() => finish(undefined), timeoutFor(payload));
                     const callback = (err: unknown, resp?: unknown) => {
                         if (err) {
                             console.warn('[lx] request handler 回调报错：', err);

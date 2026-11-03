@@ -8,10 +8,26 @@ import { getFromCache, saveToCache } from '../../../services/db';
 import type { LxLoadedSource, LxPlatformKey, LxSource } from './lxTypes';
 import { loadLxSource } from './lxRuntime';
 import { parseLxHeader } from './lxSourceParser';
+import { raceCandidates, withTimeout, type LxRaceTask } from './lxRace';
+import { cooldownLeftMs, noteSourceFailure, noteSourceSuccess, resetSourceHealth, sourceRank } from './lxSourceHealth';
 
 const STORAGE_KEY = 'lxmusic_sources_v1';
 
 type Listener = () => void;
+
+/** 音源 callback 可能给字符串、{ url } 或 { url, headers }，统一成后两种之外的形式由调用方再判。 */
+const normalizeMusicUrl = (
+    raw: unknown,
+): string | { url: string; headers?: Record<string, string> } | null => {
+    if (typeof raw === 'string') return raw.length > 0 ? raw : null;
+    if (raw && typeof raw === 'object' && 'url' in (raw as Record<string, unknown>)) {
+        const record = raw as { url?: unknown; headers?: Record<string, string> };
+        if (typeof record.url === 'string' && record.url.length > 0) {
+            return { url: record.url, headers: record.headers };
+        }
+    }
+    return null;
+};
 
 class LxSourceStore {
     private sources: LxSource[] = [];
@@ -115,6 +131,8 @@ class LxSourceStore {
         if (idx >= 0) this.sources[idx] = source;
         else this.sources.push(source);
         this.loaded.set(id, { ...loaded, id });
+        // 重新导入的脚本多半是修过的版本，旧的失败记录不该继续压着它。
+        resetSourceHealth(id);
         await this.persist();
         this.notify();
         return source;
@@ -151,57 +169,104 @@ class LxSourceStore {
         src.sources = loaded.sources;
         src.error = loaded.error;
         if (src.enabled) this.loaded.set(id, { ...loaded, id });
+        resetSourceHealth(id);
         await this.persist();
         this.notify();
     }
 
     /**
-     * 找一个可用音源，为某平台取某种 action 的结果（musicUrl / lyric / pic）。
-     * `accept` 用来验收结果（比如播放地址要先探活）：不通过就换下一个音源，
-     * 而不是拿着一个 404 的地址让播放器静默失败。
+     * 能处理某个平台某种 action 的音源，按健康度排序（好的在前，冷却中的排最后）。
+     * 竞速的任务表就是从这里出来的。
      */
-    private async resolveFirst(
+    private candidatesFor(
         platform: LxPlatformKey,
         action: 'musicUrl' | 'lyric' | 'pic',
-        info: { type?: string | null; musicInfo: Record<string, unknown> },
-        accept?: (value: unknown) => Promise<boolean>,
-    ): Promise<unknown> {
-        for (const src of this.sources) {
-            if (!src.enabled) continue;
-            const platformInfo = src.sources[platform];
+    ): Array<{ source: LxSource; loaded: LxLoadedSource }> {
+        const out: Array<{ source: LxSource; loaded: LxLoadedSource; rank: number }> = [];
+        for (const source of this.sources) {
+            if (!source.enabled) continue;
+            const platformInfo = source.sources[platform];
             if (!platformInfo || !platformInfo.actions.includes(action)) continue;
-            const loaded = this.loaded.get(src.id);
+            const loaded = this.loaded.get(source.id);
             if (!loaded || !loaded.requestHandler || loaded.error) continue;
-            try {
-                const result = await loaded.requestHandler({ source: platform, action, info });
-                if (result === undefined || result === null) continue;
-                if (accept && !(await accept(result))) {
-                    console.warn(`[lx] 音源 ${src.meta.name} 给出的 ${action}/${platform} 地址不可用，换下一个源`);
-                    continue;
-                }
-                return result;
-            } catch (err) {
-                console.warn(`[lx] 音源 ${src.meta.name} 处理 ${action}/${platform} 失败：`, err);
-            }
+            out.push({ source, loaded, rank: sourceRank(source.id) });
         }
-        return null;
+        out.sort((a, b) => a.rank - b.rank);
+        return out.map(({ source, loaded }) => ({ source, loaded }));
     }
 
-    /** 取播放地址：返回 url 字符串，或 { url, headers }。 */
+    /**
+     * 为某个平台建一批「取播放地址」的任务，一个音源一个。
+     * 由调用方和跨平台任务一起丢进 raceCandidates —— 先交出可用地址的赢。
+     */
+    musicTasksFor(
+        platform: LxPlatformKey,
+        quality: string,
+        musicInfo: Record<string, unknown>,
+        accept?: (value: unknown) => Promise<boolean>,
+        timeoutMs = 7000,
+    ): LxRaceTask<string | { url: string; headers?: Record<string, string> }>[] {
+        return this.candidatesFor(platform, 'musicUrl').map(({ source, loaded }) => ({
+            label: `${source.meta.name}/${platform}`,
+            run: async () => {
+                const startedAt = Date.now();
+                const raw = await withTimeout(
+                    loaded.requestHandler({ source: platform, action: 'musicUrl', info: { type: quality, musicInfo } }),
+                    timeoutMs,
+                );
+                const parsed = normalizeMusicUrl(raw);
+                if (!parsed) {
+                    // 没地址也算一次失败：这个源在这个平台上确实交不出东西。
+                    noteSourceFailure(source.id);
+                    return null;
+                }
+                if (accept && !(await accept(parsed))) {
+                    console.warn(`[lx] 音源 ${source.meta.name} 给的 ${platform} 地址打不开，换下一个`);
+                    noteSourceFailure(source.id);
+                    return null;
+                }
+                noteSourceSuccess(source.id, Date.now() - startedAt);
+                return parsed;
+            },
+        }));
+    }
+
+    /**
+     * 取播放地址：本平台所有可用音源同时上，谁先给出能播的地址用谁。
+     * 返回 url 字符串，或 { url, headers }。
+     */
     async resolveMusicUrl(
         platform: LxPlatformKey,
         quality: string,
         musicInfo: Record<string, unknown>,
         accept?: (value: unknown) => Promise<boolean>,
     ): Promise<string | { url: string; headers?: Record<string, string> } | null> {
-        const result = await this.resolveFirst(platform, 'musicUrl', { type: quality, musicInfo }, accept);
-        if (result == null) return null;
-        if (typeof result === 'string') return result;
-        if (typeof result === 'object' && 'url' in (result as object)) {
-            const r = result as { url: string; headers?: Record<string, string> };
-            if (typeof r.url === 'string' && r.url.length > 0) return { url: r.url, headers: r.headers };
-        }
-        return null;
+        const tasks = this.musicTasksFor(platform, quality, musicInfo, accept);
+        if (tasks.length === 0) return null;
+        return raceCandidates(tasks, { initial: 3, staggerMs: 200, maxConcurrent: 6 });
+    }
+
+    /**
+     * 歌词 / 封面：也给竞速，但这些没有「探活」这一步，串行反而省请求，所以两个一起发就够。
+     */
+    private async resolveFirst(
+        platform: LxPlatformKey,
+        action: 'lyric' | 'pic',
+        info: { type?: string | null; musicInfo: Record<string, unknown> },
+    ): Promise<unknown> {
+        const tasks: LxRaceTask<unknown>[] = this.candidatesFor(platform, action).map(({ source, loaded }) => ({
+            label: `${source.meta.name}/${platform}/${action}`,
+            run: () => withTimeout(
+                loaded.requestHandler({ source: platform, action, info }).catch((err) => {
+                    console.warn(`[lx] 音源 ${source.meta.name} 处理 ${action}/${platform} 失败：`, err);
+                    noteSourceFailure(source.id);
+                    return null;
+                }),
+                action === 'lyric' ? 12000 : 8000,
+            ),
+        }));
+        if (tasks.length === 0) return null;
+        return raceCandidates(tasks, { initial: 2, staggerMs: 400, maxConcurrent: 2 });
     }
 
     async resolveLyric(platform: LxPlatformKey, musicInfo: Record<string, unknown>): Promise<unknown> {
@@ -210,13 +275,12 @@ class LxSourceStore {
 
     /** 有没有音源能处理这个平台的某种 action。UI 用它提示「没导入音源就放不了歌」。 */
     canResolve(platform: LxPlatformKey, action: 'musicUrl' | 'lyric' | 'pic' = 'musicUrl'): boolean {
-        return this.sources.some((src) => {
-            if (!src.enabled) return false;
-            const platformInfo = src.sources[platform];
-            if (!platformInfo || !platformInfo.actions.includes(action)) return false;
-            const loaded = this.loaded.get(src.id);
-            return Boolean(loaded?.requestHandler) && !loaded?.error;
-        });
+        return this.candidatesFor(platform, action).length > 0;
+    }
+
+    /** 这个平台还有没有「没进冷却」的源：跨平台兜底时先挑这些，别去撞已知的死源。 */
+    hasLiveSourceFor(platform: LxPlatformKey, action: 'musicUrl' | 'lyric' | 'pic' = 'musicUrl'): boolean {
+        return this.candidatesFor(platform, action).some(({ source }) => cooldownLeftMs(source.id) === 0);
     }
 
     /** 有没有任何音源能处理某种 action（不限定平台）。跨平台兜底时用它判断「还有没有戏」。 */
