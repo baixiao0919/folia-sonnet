@@ -5,7 +5,6 @@ import type { ProviderCollection } from '../../types/onlineMusic';
 import { useLxWorkspaceStore, type LxWorkspaceTab } from '../../stores/useLxWorkspaceStore';
 import { lxBrowse, lxmusicProvider } from '../../services/onlineMusic/lxmusic/lxmusicProvider';
 import { lxSourceStore } from '../../services/onlineMusic/lxmusic/lxSourceStore';
-import type { LxPlatformKey } from '../../services/onlineMusic/lxmusic/lxTypes';
 import {
     LX_PUBLIC_PLATFORMS,
     type LxApiChart,
@@ -14,7 +13,7 @@ import {
 } from '../../services/onlineMusic/lxmusic/lxPublicApi';
 import { LxTrackList } from './LxTrackList';
 import { LxSourcePanel } from './LxSourcePanel';
-import { errorText, formatCount, formatDate, platformBadge, platformOfSong } from './lxUi';
+import { errorText, formatCount, formatDate, platformBadge } from './lxUi';
 import './lxWorkspace.css';
 
 // src/components/lxmusic/LxWorkspace.tsx
@@ -90,11 +89,10 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
         playHintTimer.current = window.setTimeout(() => setPlayHint(null), durationMs);
     }, []);
     const handlePlay = useCallback((song: UnifiedSong) => {
-        // 网易云 / QQ 没有免费直链，没导入对应音源时点播放只会换来一句「洛雪未返回音频」，
-        // 不如当场说清楚缺什么。
-        const owner = platformOfSong(song);
-        if ((owner === 'wy' || owner === 'tx') && !lxSourceStore.canResolve(owner as LxPlatformKey, 'musicUrl')) {
-            showHint(`${platformBadge(owner).label}的歌要先去「音源」导入对应音源`, 3600);
+        // 现在播放一律先走导入的音源，音源不支持这首所在的平台时会自动到别的平台找同一首，
+        // 所以只有「一个音源都没有」才需要拦下来。
+        if (!lxSourceStore.canResolveAny('musicUrl')) {
+            showHint('还没有可用的音源，先去右上角「音源」导入一个', 3600);
             return;
         }
         onPlayTrack(song);
@@ -303,9 +301,9 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
     // 酷我 / 酷狗有公开的免费直链（付费 / 独家曲目才需要音源），网易云与 QQ 只能靠导入的音源。
     const hasFreeDirect = (target: string): boolean => target === 'kw' || target === 'kg';
 
-    const canPlayOn = (target: string): boolean => (
-        hasFreeDirect(target) || lxSourceStore.canResolve(target as LxPlatformKey, 'musicUrl')
-    );
+    // 跨平台兜底之后，「这一家没有音源」不再等于放不了：只要还有任意一个音源就行。
+    const hasAnySource = lxSourceStore.canResolveAny('musicUrl');
+    const canPlayOn = (target: string): boolean => hasFreeDirect(target) || hasAnySource;
 
     const showPlatformRow = !GLOBAL_TABS.includes(tab);
 
@@ -418,7 +416,7 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
                     </div>
                     {!canPlayOn(detail.platform) ? (
                         <div className="lx-notice" data-kind="warn">
-                            没有{platformBadge(detail.platform).label}音源，这些歌点开会放不出来。
+                            还没有可用的音源，这些歌点开会放不出来。去右上角「音源」导入一个。
                         </div>
                     ) : null}
                     {detailError ? <div className="lx-notice" data-kind="warn">{detailError}</div> : null}

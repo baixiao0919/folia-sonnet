@@ -179,10 +179,9 @@ const sourceQualityFor = (platform: LxPlatformKey): string[] => {
 };
 
 /** LX 音源要的 musicInfo：把各平台认的字段名都填上。 */
-const buildMusicInfo = (song: SongResult, parsed: ParsedId): Record<string, unknown> => {
+const buildMusicInfo = (platform: LxPlatformKey, nativeId: string, song: SongResult): Record<string, unknown> => {
     const artistNames = song.artists.map((artist) => artist.name).join(',');
     const durationSec = Math.round((song.durationMs ?? 0) / 1000);
-    const nativeId = parsed.nativeId;
     return {
         songid: nativeId,
         songmid: nativeId,
@@ -191,6 +190,10 @@ const buildMusicInfo = (song: SongResult, parsed: ParsedId): Record<string, unkn
         mid: nativeId,
         // 酷狗自定义源普遍读 hash。
         hash: nativeId,
+        // 酷我系音源会读这几个。
+        rid: nativeId,
+        songId: nativeId,
+        copyrightId: nativeId,
         name: song.name,
         title: song.name,
         singer: artistNames,
@@ -199,8 +202,8 @@ const buildMusicInfo = (song: SongResult, parsed: ParsedId): Record<string, unkn
         album: song.album?.name ?? '',
         interval: durationSec,
         duration: durationSec,
-        songId: nativeId,
         musicid: nativeId,
+        platform,
     };
 };
 
@@ -239,6 +242,138 @@ const parseLrcToLyricData = (lrc: string): LyricData => {
 const isPublicPlatform = (platform: LxPlatformKey): platform is LxPublicPlatform => (
     platform === 'wy' || platform === 'kg' || platform === 'kw' || platform === 'tx'
 );
+
+/**
+ * 「全都走音源」的实现：
+ *   1. 本平台音源能处理 → 直接用；
+ *   2. 本平台音源处理不了（或失败）→ 拿「歌名 + 歌手」去音源支持的其他平台搜同一首歌，
+ *      用那家的 id 再让音源出地址。这样即便你只导入了酷狗音源，网易云的歌也能放；
+ *   3. 都没有 → 才退回免费直链（酷我 / 酷狗的公开接口）。
+ *
+ * 结果按「平台:原生 id:音质」缓存几分钟：切歌、重试、歌词刷新都会重复问同一个地址，
+ * 每次重跑一遍音源的 HTTP 链路既慢又容易被风控。
+ */
+const PLAYBACK_CACHE_TTL = 4 * 60 * 1000;
+const playbackCache = new Map<string, { url: string; at: number }>();
+
+/** 跨平台兜底时的尝试顺序：优先音源生态里最稳的酷狗 / 酷我，再网易云、QQ。 */
+const FALLBACK_PLATFORM_ORDER: LxPublicPlatform[] = ['kg', 'kw', 'wy', 'tx'];
+
+const simplifyText = (text: string): string => text
+    .toLowerCase()
+    .replace(/[\s\-_/\\()（）[\]【】<>《》·,，.。!！?？'"“”‘’&+]/g, '');
+
+/** 在搜索结果里挑同名同歌手的那首，时长差太多的直接判负。 */
+const pickBestMatch = (candidates: LxApiSong[], song: SongResult): LxApiSong | null => {
+    const name = simplifyText(song.name);
+    const artists = song.artists.map((artist) => simplifyText(artist.name));
+    let best: { item: LxApiSong; score: number } | null = null;
+    for (const item of candidates) {
+        const itemName = simplifyText(item.name);
+        let score = 0;
+        if (itemName === name) score += 6;
+        else if (itemName.includes(name) || name.includes(itemName)) score += 3;
+        else continue;
+
+        const itemArtists = item.artists.map((artist) => simplifyText(artist.name));
+        if (itemArtists.some((artist) => artists.includes(artist))) score += 4;
+        else if (itemArtists.some((artist) => artists.some((target) => artist.includes(target) || target.includes(artist)))) score += 2;
+
+        if (song.durationMs && item.durationMs) {
+            const diff = Math.abs(song.durationMs - item.durationMs);
+            if (diff < 3000) score += 2;
+            else if (diff > 20000) score -= 2;
+        }
+        if (!best || score > best.score) best = { item, score };
+    }
+    return best && best.score >= 6 ? best.item : null;
+};
+
+/**
+ * 音源给的地址先探一下活。
+ * 第三方音源的后端经常「地址给得出来、点开是 404 / 一段 HTML」，播放器只会静默失败。
+ *
+ * 这里用隐藏的 <audio> 加载 metadata，而不是 fetch：音频 CDN 基本都不带 CORS 头，
+ * fetch 会因为跨域直接失败，会把好好的地址判成死链；<audio> 走的正是真正播放的路径。
+ */
+const probeAudioUrl = (value: unknown): Promise<boolean> => new Promise((resolve) => {
+    const url = typeof value === 'string'
+        ? value
+        : (value as { url?: unknown } | null)?.url;
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+        resolve(false);
+        return;
+    }
+
+    const audio = new Audio();
+    let settled = false;
+    const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        audio.removeEventListener('loadedmetadata', onLoaded);
+        audio.removeEventListener('error', onError);
+        // 主动释放，避免探活把连接一直挂着。
+        try {
+            audio.pause();
+            audio.removeAttribute('src');
+            audio.load();
+        } catch {
+            // 忽略：只是清理。
+        }
+        resolve(ok);
+    };
+    const onLoaded = () => finish(true);
+    const onError = () => finish(false);
+    const timer = window.setTimeout(() => finish(false), 8000);
+
+    audio.addEventListener('loadedmetadata', onLoaded, { once: true });
+    audio.addEventListener('error', onError, { once: true });
+    audio.preload = 'metadata';
+    audio.muted = true;
+    audio.src = url;
+    audio.load();
+});
+
+const resolveThroughSource = async (
+    platform: LxPlatformKey,
+    nativeId: string,
+    song: SongResult,
+    quality: AudioQualityPreference,
+): Promise<string | null> => {
+    const supported = sourceQualityFor(platform);
+    if (supported.length === 0) return null;
+    const lxQuality = foliaQualityToLx(quality, supported);
+    if (!lxQuality) return null;
+
+    const key = `${platform}:${nativeId}:${lxQuality}`;
+    const cached = playbackCache.get(key);
+    if (cached && Date.now() - cached.at < PLAYBACK_CACHE_TTL) return cached.url;
+
+    const result = await lxSourceStore.resolveMusicUrl(
+        platform,
+        lxQuality,
+        buildMusicInfo(platform, nativeId, song),
+        probeAudioUrl,
+    );
+    if (!result) return null;
+    const url = typeof result === 'string' ? result : result.url;
+    if (!url) return null;
+    playbackCache.set(key, { url, at: Date.now() });
+    return url;
+};
+
+/** 去别家平台找同一首歌，返回那家的 id。 */
+const findNativeIdOn = async (platform: LxPublicPlatform, song: SongResult): Promise<string | null> => {
+    try {
+        const query = `${song.name} ${song.artists[0]?.name ?? ''}`.trim();
+        const page = await lxApiSearchSongs(platform, query, 8, 0);
+        return pickBestMatch(page.items, song)?.id ?? null;
+    } catch (error) {
+        console.warn(`[lxmusic] 在 ${platform} 找同一首歌失败：`, error);
+        return null;
+    }
+};
 
 // ---------------------------------------------------------------- provider
 
@@ -319,22 +454,33 @@ export const lxmusicProvider: OnlineMusicProvider = {
             const parsed = platformOfSong(song);
             if (!parsed) return null;
 
-            // 1) 公开直链（目前只有酷我给）。
+            // 音源是异步初始化的（不少脚本要先探测接口才 send('inited')），
+            // 刚打开 App 就点播放时它可能还没就绪，这里等一小会儿。
+            await lxSourceStore.ensureReady();
+
+            // 1) 本平台音源直接出地址。
+            if (lxSourceStore.canResolve(parsed.platform, 'musicUrl')) {
+                const url = await resolveThroughSource(parsed.platform, parsed.nativeId, song, quality);
+                if (url) return { url, fetchedAt: Date.now(), quality };
+            }
+
+            // 2) 换平台：同一个歌，在音源支持的其他平台里找一遍。
+            //    只导入酷狗音源也能放网易云的歌，靠的就是这一步。
+            for (const platform of FALLBACK_PLATFORM_ORDER) {
+                if (platform === parsed.platform) continue;
+                if (!lxSourceStore.canResolve(platform, 'musicUrl')) continue;
+                const nativeId = await findNativeIdOn(platform, song);
+                if (!nativeId) continue;
+                const url = await resolveThroughSource(platform, nativeId, song, quality);
+                if (url) return { url, fetchedAt: Date.now(), quality };
+            }
+
+            // 3) 最后才退回公开免费直链（酷我 / 酷狗的免费曲目）。
             if (isPublicPlatform(parsed.platform)) {
                 const freeUrl = await lxApiFreeAudioUrl(parsed.platform, parsed.nativeId);
                 if (freeUrl) return { url: freeUrl, fetchedAt: Date.now(), quality };
             }
-
-            // 2) 导入的音源。
-            const supported = sourceQualityFor(parsed.platform);
-            if (supported.length === 0) return null;
-            const lxQuality = foliaQualityToLx(quality, supported);
-            if (!lxQuality) return null;
-            const result = await lxSourceStore.resolveMusicUrl(parsed.platform, lxQuality, buildMusicInfo(song, parsed));
-            if (!result) return null;
-            const url = typeof result === 'string' ? result : result.url;
-            if (!url) return null;
-            return { url, fetchedAt: Date.now(), quality };
+            return null;
         },
     },
 
@@ -361,7 +507,7 @@ export const lxmusicProvider: OnlineMusicProvider = {
             }
 
             // 2) 音源。
-            const raw = await lxSourceStore.resolveLyric(parsed.platform, buildMusicInfo(song, parsed));
+            const raw = await lxSourceStore.resolveLyric(parsed.platform, buildMusicInfo(parsed.platform, parsed.nativeId, song));
             const record = raw && typeof raw === 'object' ? raw as { lyric?: string; tlyric?: string; rlyric?: string } : null;
             const main = record?.lyric ?? null;
             if (!main) return { lyrics: null, isPureMusic: false };

@@ -36,17 +36,25 @@ export const parseLxHeader = (code: string): LxSourceMeta => {
 
 export class LxSourceParseError extends Error {}
 
-/** 对脚本做基本合法性检查，不执行它。 */
+/**
+ * 对脚本做基本合法性检查，不执行它。
+ *
+ * 注意：这里**不能**要求字面量 `globalThis.lx`。市面上大量音源是混淆过的，
+ * 里面写的是 `globalThis['\x6c\x78']`（就是 lx），甚至整个 `lx` 都拆成变量拼接。
+ * 早先按字面量校验，这类音源会在「导入」这一步就被误判成「不是洛雪音源」。
+ * 真正的判定交给运行时：脚本跑完有没有 send(inited) 才作数。
+ */
 export const validateLxScript = (code: string): void => {
     const trimmed = code.trim();
     if (trimmed.length < 40) {
         throw new LxSourceParseError('脚本内容过短，看起来不是有效的洛雪音源。');
     }
-    if (!/globalThis\.lx/.test(code) && !/\blx\b/.test(code)) {
-        throw new LxSourceParseError('没有发现对 globalThis.lx 的引用，这不是洛雪自定义音源脚本。');
+    if (/^\s*<(!doctype|html)/i.test(trimmed)) {
+        throw new LxSourceParseError('拿到的是一个网页，不是音源脚本。请确认链接指向 .js 文件。');
     }
-    if (!/EVENT_NAMES|lx\.send|send\(/.test(code)) {
-        // 宽松校验：自定义源通常都会 send(inited)。缺少时运行时仍会报错，这里只给提示。
+    const looksLikeSource = /globalThis|EVENT_NAMES|\brequest\b|\bsend\b/.test(trimmed);
+    if (!looksLikeSource) {
+        throw new LxSourceParseError('没有发现洛雪音源的特征（globalThis / EVENT_NAMES / request / send），这不是自定义音源脚本。');
     }
 };
 

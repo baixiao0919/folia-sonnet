@@ -85,4 +85,6 @@ export interface LxLoadedSource {
     sources: Partial<Record<LxPlatformKey, LxSourcePlatformInfo>>;
     requestHandler: LxRequestHandler;
     error?: string;
+    /** 初始化完成（收到 inited 或超时）。很多音源是异步 send(inited) 的，必须等它。 */
+    ready: Promise<void>;
 }
