@@ -629,8 +629,14 @@ class LocalAudioServer(context: Context) {
         // 有些 CDN 看 UA / Referer 决定给不给资源，不带的话会回一段 HTML 而不是音频
         // —— 那种回包喂进 <audio> 正是「Format error」的经典来源。
         request.header("User-Agent", REMOTE_AUDIO_USER_AGENT)
-        request.header("Referer", remoteAudioReferer(target))
-        // 调用方带来的头（飞牛的 music-token）最后写：同名的以它为准。
+        // 默认 Referer 只给白名单主机（酷我 / 网易）：那是它们 CDN 的防盗链要求。
+        // 对任意主机（洛雪音源给出的地址）塞一个 kuwo 的 Referer 反而会被回 403，
+        // 所以那边只用调用方带来的头，没带就不加。
+        val host = try { URL(target).host?.lowercase(Locale.ROOT) ?: "" } catch (ignored: Exception) { "" }
+        if (isRemoteAudioHostAllowed(host)) {
+            request.header("Referer", remoteAudioReferer(target))
+        }
+        // 调用方带来的头（飞牛的 music-token、音源要求的 Referer）最后写：同名的以它为准。
         if (extraHeaders != null) {
             for ((key, headerValue) in extraHeaders) {
                 request.header(key, headerValue)

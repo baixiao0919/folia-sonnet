@@ -17,6 +17,7 @@ import { deflateSync, inflateSync, unzlibSync, zlibSync } from 'fflate';
 import type { LxLoadedSource, LxPlatformKey, LxRequestHandler, LxSourceMeta, LxSourcePlatformInfo } from './lxTypes';
 import { validateLxScript } from './lxSourceParser';
 import { resolveProxiedUrl } from '../../proxiedUrl';
+import { hasNativeHttp, nativeHttpRequest } from '../../nativeAndroidBridge';
 
 const EVENT_NAMES = { inited: 'inited', request: 'request', updateAlert: 'updateAlert' } as const;
 
@@ -547,9 +548,35 @@ export const lxRequest = (
     const controller = new AbortController();
     const timer = options.timeout ? window.setTimeout(() => controller.abort(), options.timeout) : null;
     const { body, headers } = buildRequestBody(options);
-    // 音源脚本里的请求同样要过原生桥：安卓 WebView 里直连各家接口会被 CORS 拦掉，
-    // 表现就是「每个音源都取不到地址」。
-    fetch(resolveProxiedUrl(url), { method: options.method || 'GET', headers, body, signal: controller.signal, mode: 'cors' })
+
+    /**
+     * 安卓上必须走原生 OkHttp，而且**不能**按主机白名单过滤。
+     *
+     * 音源脚本的第一步是去它自己的服务器要地址，那些域名千奇百怪；以前这里走
+     * `resolveProxiedUrl`，白名单外的主机在安卓包里会直接抛
+     * "VITE_FOLIA_API_BASE must be configured"，等于每个音源第一跳就失败。
+     * 白名单内的主机反而能过——所以现象是「少数音源能用、大部分不能播」。
+     */
+    const run = async (): Promise<Response> => {
+        if (hasNativeHttp()) {
+            return nativeHttpRequest(url, {
+                method: (options.method || 'GET').toUpperCase(),
+                headers,
+                bodyText: body instanceof URLSearchParams ? body.toString() : typeof body === 'string' ? body : undefined,
+                // 音源的服务器有时很慢（要先回源、要签名），给足预算；底下还有脚本自己的 timeout。
+                timeoutMs: Math.max(options.timeout ?? 0, 20000),
+            });
+        }
+        return fetch(resolveProxiedUrl(url), {
+            method: options.method || 'GET',
+            headers,
+            body,
+            signal: controller.signal,
+            mode: 'cors',
+        });
+    };
+
+    run()
         .then(async (resp) => {
             const text = await resp.text();
             const respHeaders: Record<string, string> = {};

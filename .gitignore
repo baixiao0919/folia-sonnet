@@ -102,4 +102,6 @@ dist-runtime/
 public/nebbia-strokes.json
 
 # 忽略补丁
-patch/
+patch/.harness-out/
+.harness-*.cjs
+kg.json

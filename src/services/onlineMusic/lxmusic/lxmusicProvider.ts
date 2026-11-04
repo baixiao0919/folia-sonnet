@@ -20,6 +20,8 @@ import type { LyricData, SongResult, UnifiedSong } from '../../../types';
 import { lxSourceStore } from './lxSourceStore';
 import { FOLIA_QUALITY_TO_LX, type LxPlatformKey } from './lxTypes';
 import { raceCandidates, type LxRaceTask } from './lxRace';
+import { proxyNativeRemoteAudioUrl } from '../../nativeRemoteAudio';
+import { hasNativeHttp, nativeHttpRequest } from '../../nativeAndroidBridge';
 import {
     lxApiAlbumSquare,
     lxApiAlbumTracks,
@@ -261,7 +263,7 @@ const PERSISTED_CACHE_TTL = 3 * 60 * 60 * 1000;
 const CACHE_STORAGE_KEY = 'lxmusic_playback_cache_v1';
 const CACHE_LIMIT = 400;
 
-type PlaybackCacheEntry = { url: string; at: number; persisted: boolean };
+type PlaybackCacheEntry = { url: string; at: number; persisted: boolean; headers?: Record<string, string> };
 
 const playbackCache = new Map<string, PlaybackCacheEntry>();
 let persistedCacheLoaded = false;
@@ -273,12 +275,17 @@ const loadPersistedCache = (): void => {
     try {
         const raw = localStorage.getItem(CACHE_STORAGE_KEY);
         if (!raw) return;
-        const parsed = JSON.parse(raw) as Record<string, { url?: string; at?: number }>;
+        const parsed = JSON.parse(raw) as Record<string, { url?: string; at?: number; headers?: Record<string, string> }>;
         const now = Date.now();
         Object.entries(parsed).forEach(([key, value]) => {
             if (typeof value?.url !== 'string' || typeof value?.at !== 'number') return;
             if (now - value.at > PERSISTED_CACHE_TTL) return;
-            playbackCache.set(key, { url: value.url, at: value.at, persisted: true });
+            playbackCache.set(key, {
+                url: value.url,
+                at: value.at,
+                persisted: true,
+                ...(value.headers && typeof value.headers === 'object' ? { headers: value.headers } : {}),
+            });
         });
     } catch {
         // 缓存坏了就当没有。
@@ -314,8 +321,13 @@ const readCachedUrl = (key: string): PlaybackCacheEntry | null => {
     return entry;
 };
 
-const writeCachedUrl = (key: string, url: string): void => {
-    playbackCache.set(key, { url, at: Date.now(), persisted: false });
+const writeCachedUrl = (key: string, url: string, headers?: Record<string, string>): void => {
+    playbackCache.set(key, {
+        url,
+        at: Date.now(),
+        persisted: false,
+        ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
+    });
     saveCacheSoon();
 };
 
@@ -356,19 +368,39 @@ const pickBestMatch = (candidates: LxApiSong[], song: SongResult): LxApiSong | n
  * 音源给的地址先探一下活。
  * 第三方音源的后端经常「地址给得出来、点开是 404 / 一段 HTML」，播放器只会静默失败。
  *
- * 这里用隐藏的 <audio> 加载 metadata，而不是 fetch：音频 CDN 基本都不带 CORS 头，
- * fetch 会因为跨域直接失败，会把好好的地址判成死链；<audio> 走的正是真正播放的路径。
- * 探活是并发竞速里最贵的一段，所以超时压到 6 秒，到点就当这个源不行、让位给下一个。
+ * 探活方式分两条路：
+ *   · 安卓：走原生 OkHttp 取第一个字节（`Range: bytes=0-0`），带上音源自己要求的头。
+ *     这是唯一可靠的路子 —— 音频 CDN 基本都不下发 CORS 头，而播放器 <audio> 挂的是
+ *     crossOrigin="anonymous"，用 <audio> 或 fetch 探活会把**所有**地址判成死链，
+ *     于是 v15 的表现就是「一个都播不了」。
+ *   · 网页端：没有原生桥，只能用 <audio> 走真正播放的路径（浏览器里 fetch 同样会被
+ *     跨域挡掉，反而误判）。
  */
-const probeAudioUrl = (value: unknown): Promise<boolean> => new Promise((resolve) => {
-    const url = typeof value === 'string'
-        ? value
-        : (value as { url?: unknown } | null)?.url;
-    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
-        resolve(false);
-        return;
-    }
+const PROBE_TIMEOUT_MS = 5000;
 
+const PROBE_USER_AGENT = 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+
+/** 回包像不像音频：明确的 text/json/xml 就是「地址给错了」，其余一律放行。 */
+const looksLikeAudio = (contentType: string | null): boolean => {
+    const type = String(contentType || '').toLowerCase();
+    if (!type) return true;
+    return !(type.startsWith('text/') || type.includes('json') || type.includes('xml') || type.includes('html'));
+};
+
+const probeByNative = async (url: string, headers?: Record<string, string>): Promise<boolean> => {
+    const response = await nativeHttpRequest(url, {
+        method: 'GET',
+        headers: { 'User-Agent': PROBE_USER_AGENT, Range: 'bytes=0-0', ...headers },
+        timeoutMs: PROBE_TIMEOUT_MS,
+    });
+    // 416：服务器活着但拒绝了 range（少见）。地址是能播的，别判死。
+    if (response.status === 416) return true;
+    if (!response.ok) return false;
+    return looksLikeAudio(response.headers.get('content-type'));
+};
+
+/** 网页端：用隐藏的 <audio> 取 metadata（走的是真正播放的路径，不受 CORS 限制）。 */
+const probeByAudioElement = (url: string): Promise<boolean> => new Promise((resolve) => {
     const audio = new Audio();
     let settled = false;
     const finish = (ok: boolean) => {
@@ -389,7 +421,7 @@ const probeAudioUrl = (value: unknown): Promise<boolean> => new Promise((resolve
     };
     const onLoaded = () => finish(true);
     const onError = () => finish(false);
-    const timer = window.setTimeout(() => finish(false), 6000);
+    const timer = window.setTimeout(() => finish(false), PROBE_TIMEOUT_MS);
 
     audio.addEventListener('loadedmetadata', onLoaded, { once: true });
     audio.addEventListener('error', onError, { once: true });
@@ -399,6 +431,23 @@ const probeAudioUrl = (value: unknown): Promise<boolean> => new Promise((resolve
     audio.load();
 });
 
+const probeAudioUrl = async (value: unknown): Promise<boolean> => {
+    const candidate = (typeof value === 'string' ? { url: value } : value) as { url?: unknown; headers?: Record<string, string> } | null;
+    const url = candidate?.url;
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return false;
+
+    if (hasNativeHttp()) {
+        try {
+            return await probeByNative(url, candidate?.headers);
+        } catch (error) {
+            // 连不上、超时、被上游拒绝：这个源这一刻确实交不出能用的地址。
+            console.warn('[lxmusic] 探活失败：', url.slice(0, 60), error instanceof Error ? error.message : error);
+            return false;
+        }
+    }
+    return probeByAudioElement(url);
+};
+
 type AudioCandidate = { url: string; headers?: Record<string, string> };
 
 const asCandidate = (value: string | AudioCandidate | null): AudioCandidate | null => {
@@ -406,19 +455,48 @@ const asCandidate = (value: string | AudioCandidate | null): AudioCandidate | nu
     return typeof value === 'string' ? { url: value } : value;
 };
 
-/** 某个平台上所有可用音源，各建一条取地址的任务（内部已按健康度排好序）。 */
+/**
+ * 把音源给的地址换成「播放器真的能播」的形式。
+ *
+ * 播放器是 `<audio crossOrigin="anonymous">`，而音源/各家 CDN 基本都不下发
+ * `Access-Control-Allow-Origin` —— 直连时字节在最前面就被同源检查挡掉，报出来却是
+ * 一句没有特征的 "Format error" / "The element has no supported sources"。
+ * 安卓侧本来就有回环转发服务（LocalAudioServer），回包带 `ACAO: *`、Range 原样透传，
+ * 顺手还能带上音源要求的请求头（Referer / UA）。非安卓、或注册失败时原样返回。
+ */
+const toPlayableSource = async (candidate: AudioCandidate): Promise<string> => {
+    try {
+        return await proxyNativeRemoteAudioUrl(candidate.url, {
+            ...(candidate.headers ? { headers: candidate.headers } : {}),
+            allowAnyHost: true,
+        });
+    } catch {
+        return candidate.url;
+    }
+};
+
+/**
+ * 某个平台上所有可用音源，各建一条取地址的任务（内部已按健康度排好序）。
+ * `probe=false` 时不验收地址 —— 留给「全都探活失败」时的最后一次机会。
+ */
 const sourceTasksFor = (
     platform: LxPlatformKey,
     nativeId: string,
     song: SongResult,
     quality: AudioQualityPreference,
+    probe = true,
 ): LxRaceTask<AudioCandidate>[] => {
     const supported = sourceQualityFor(platform);
     if (supported.length === 0) return [];
     const lxQuality = foliaQualityToLx(quality, supported);
     if (!lxQuality) return [];
     return lxSourceStore
-        .musicTasksFor(platform, lxQuality, buildMusicInfo(platform, nativeId, song), probeAudioUrl)
+        .musicTasksFor(
+            platform,
+            lxQuality,
+            buildMusicInfo(platform, nativeId, song),
+            probe ? probeAudioUrl : undefined,
+        )
         .map((task) => ({
             label: task.label,
             run: async () => asCandidate(await task.run()),
@@ -521,8 +599,12 @@ export const lxmusicProvider: OnlineMusicProvider = {
             if (cached) {
                 // 同一会话里刚用过：直接用。落盘的（上次开 App 时拿的）先探一下活，
                 // 签名过期的地址别拿去喂播放器 —— 探活几百毫秒，重解析要几秒。
-                if (!cached.persisted || await probeAudioUrl(cached.url)) {
-                    return { url: cached.url, fetchedAt: cached.at, quality };
+                if (!cached.persisted || await probeAudioUrl({ url: cached.url, headers: cached.headers })) {
+                    return {
+                        url: await toPlayableSource({ url: cached.url, headers: cached.headers }),
+                        fetchedAt: cached.at,
+                        quality,
+                    };
                 }
                 playbackCache.delete(cacheKey);
             }
@@ -537,9 +619,13 @@ export const lxmusicProvider: OnlineMusicProvider = {
              *   2) 每家跨平台一条链（搜同款 → 那家的音源出地址），各家并行不排队；
              *   3) 公开免费直链一起参与，酷我 / 酷狗的免费曲目常常比音源还快。
              */
-            const raceFor = (targetQuality: AudioQualityPreference): Promise<AudioCandidate | null> => {
+            const raceFor = (
+                targetQuality: AudioQualityPreference,
+                probe = true,
+                includePublicLink = true,
+            ): Promise<AudioCandidate | null> => {
                 const tasks: LxRaceTask<AudioCandidate>[] = [];
-                tasks.push(...sourceTasksFor(parsed.platform, parsed.nativeId, song, targetQuality));
+                tasks.push(...sourceTasksFor(parsed.platform, parsed.nativeId, song, targetQuality, probe));
 
                 for (const platform of FALLBACK_PLATFORM_ORDER) {
                     if (platform === parsed.platform) continue;
@@ -552,7 +638,7 @@ export const lxmusicProvider: OnlineMusicProvider = {
                         run: async () => {
                             const nativeId = await findNativeIdOn(platform, song);
                             if (!nativeId) return null;
-                            const chain = sourceTasksFor(platform, nativeId, song, targetQuality);
+                            const chain = sourceTasksFor(platform, nativeId, song, targetQuality, probe);
                             if (chain.length === 0) return null;
                             // 链内部也竞速，但别和外面抢太多并发：两个一起试就够。
                             return raceCandidates(chain, { initial: 2, staggerMs: 300, maxConcurrent: 2 });
@@ -561,13 +647,14 @@ export const lxmusicProvider: OnlineMusicProvider = {
                 }
 
                 const publicPlatform = parsed.platform;
-                if (isPublicPlatform(publicPlatform)) {
+                if (includePublicLink && isPublicPlatform(publicPlatform)) {
                     tasks.push({
                         label: `公开直链/${publicPlatform}`,
                         run: async () => {
                             const url = await lxApiFreeAudioUrl(publicPlatform, parsed.nativeId);
                             if (!url) return null;
-                            return (await probeAudioUrl(url)) ? { url } : null;
+                            // 不验收的最后一轮里，公开直链不再二次探活。
+                            return !probe || (await probeAudioUrl(url)) ? { url } : null;
                         },
                     });
                 }
@@ -585,9 +672,25 @@ export const lxmusicProvider: OnlineMusicProvider = {
                 winner = await raceFor('standard');
             }
 
+            if (!winner) {
+                /**
+                 * 最后一根稻草：所有候选都没通过探活。
+                 * 探活本身可能是误判（CDN 不认 Range / 头部要求特殊 / 首包太慢），
+                 * 而「交给播放器试一次」的代价远小于「直接把这首歌跳过」。
+                 */
+                console.warn(`[lxmusic] ${parsed.platform}:${parsed.nativeId} 全部探活失败，取一个未验收的地址兜底`);
+                // 只让音源参与：公开直链是不发请求就算出来的（尤其网易云外链），
+                // 在不验收的这一轮里它会 0ms「赢」，把真正可能能播的音源地址挤掉。
+                winner = await raceFor(quality, false, false);
+                if (!winner && quality !== 'standard') winner = await raceFor('standard', false, false);
+            }
             if (!winner) return null;
-            writeCachedUrl(cacheKey, winner.url);
-            return { url: winner.url, fetchedAt: Date.now(), quality };
+            writeCachedUrl(cacheKey, winner.url, winner.headers);
+            return {
+                url: await toPlayableSource(winner),
+                fetchedAt: Date.now(),
+                quality,
+            };
         },
     },
 

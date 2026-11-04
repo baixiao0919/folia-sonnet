@@ -10,6 +10,7 @@
 // 网页端交给本地 lyric-proxy 转发。所有接口都是 GET。
 
 import { resolveProxiedUrl } from '../../proxiedUrl';
+import { hasNativeHttp, nativeHttpRequest } from '../../nativeAndroidBridge';
 
 export type LxPublicPlatform = 'wy' | 'kg' | 'kw' | 'tx';
 
@@ -158,42 +159,49 @@ const parseLooseJson = (text: string): unknown => {
 
 const REQUEST_TIMEOUT_MS = 12000;
 
-const fetchJson = async (
+/**
+ * 一次 GET，返回响应文本。
+ *
+ * 安卓上直接走原生 OkHttp：这几家的接口和音频地址散在很多 CDN 主机上，WebView 直连
+ * 会被 CORS 挡掉，而 `resolveProxiedUrl` 在白名单外的主机上等于当场失败。
+ */
+const httpGetText = async (
     url: string,
-    timeoutMs = REQUEST_TIMEOUT_MS,
-    referer = 'https://music.163.com/',
-): Promise<unknown> => {
+    timeoutMs: number,
+    headers: Record<string, string>,
+): Promise<Response> => {
+    if (hasNativeHttp()) {
+        return nativeHttpRequest(url, { method: 'GET', headers, timeoutMs });
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const response = await fetch(resolveProxiedUrl(url), {
+        return await fetch(resolveProxiedUrl(url), {
             method: 'GET',
             signal: controller.signal,
             credentials: 'omit',
-            // 网易云对没有 referer 的请求偶尔回 403；安卓桥会原样带过去，网页端由浏览器忽略。
-            headers: { Referer: referer },
+            headers,
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return parseLooseJson(await response.text());
     } finally {
         clearTimeout(timer);
     }
 };
 
+const fetchJson = async (
+    url: string,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+    referer = 'https://music.163.com/',
+): Promise<unknown> => {
+    // 网易云对没有 referer 的请求偶尔回 403；安卓桥会原样带过去，网页端由浏览器忽略。
+    const response = await httpGetText(url, timeoutMs, { Referer: referer });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return parseLooseJson(await response.text());
+};
+
 const fetchText = async (url: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<string> => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-        const response = await fetch(resolveProxiedUrl(url), {
-            method: 'GET',
-            signal: controller.signal,
-            credentials: 'omit',
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return (await response.text()).trim();
-    } finally {
-        clearTimeout(timer);
-    }
+    const response = await httpGetText(url, timeoutMs, {});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return (await response.text()).trim();
 };
 
 const pageOf = <T>(items: T[], limit: number): LxApiPage<T> => ({
@@ -807,6 +815,14 @@ const kugouFreeAudioUrl = async (hash: string): Promise<string | null> => {
 /** 酷我 / 酷狗有免费直链（其余靠音源续）。返回 null 表示这次没取到，交给音源。 */
 export const lxApiFreeAudioUrl = async (platform: LxPublicPlatform, songId: string): Promise<string | null> => {
     if (platform === 'kg') return kugouFreeAudioUrl(songId);
+    if (platform === 'wy') {
+        /**
+         * 网易云的免登录外链：免费曲目会直接 302 到 CDN，付费/下架的曲目回一段 HTML。
+         * 这里只负责给出候选地址，能不能播由调用方探活决定（HTML 会被拒掉）。
+         * 实测 `起风了` 这类免费曲目能拿到 206 audio/mpeg。
+         */
+        return `https://music.163.com/song/media/outer/url?id=${encodeURIComponent(songId)}.mp3`;
+    }
     if (platform !== 'kw') return null;
     try {
         const url = await fetchText(
