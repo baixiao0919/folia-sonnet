@@ -547,7 +547,7 @@ export const lxRequest = (
 ): (() => void) => {
     const controller = new AbortController();
     const timer = options.timeout ? window.setTimeout(() => controller.abort(), options.timeout) : null;
-    const { body, headers } = buildRequestBody(options);
+    const { body, headers = {} } = buildRequestBody(options);
 
     /**
      * 安卓上必须走原生 OkHttp，而且**不能**按主机白名单过滤。
@@ -559,10 +559,31 @@ export const lxRequest = (
      */
     const run = async (): Promise<Response> => {
         if (hasNativeHttp()) {
+            let bodyText: string | undefined;
+            let bodyBase64: string | undefined;
+            if (typeof body === 'string') {
+                bodyText = body;
+            } else if (body instanceof URLSearchParams) {
+                bodyText = body.toString();
+            } else if (body instanceof FormData) {
+                // 少数音源会用 FormData 上传：整段编成 base64 交给原生，顺带拿到带 boundary 的 content-type。
+                const formResponse = new Response(body);
+                const contentType = formResponse.headers.get('content-type');
+                if (contentType && !headers['content-type'] && !headers['Content-Type']) {
+                    headers['content-type'] = contentType;
+                }
+                const bytes = new Uint8Array(await formResponse.arrayBuffer());
+                let binary = '';
+                for (let index = 0; index < bytes.length; index += 0x8000) {
+                    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+                }
+                bodyBase64 = btoa(binary);
+            }
             return nativeHttpRequest(url, {
                 method: (options.method || 'GET').toUpperCase(),
                 headers,
-                bodyText: body instanceof URLSearchParams ? body.toString() : typeof body === 'string' ? body : undefined,
+                bodyText,
+                bodyBase64,
                 // 音源的服务器有时很慢（要先回源、要签名），给足预算；底下还有脚本自己的 timeout。
                 timeoutMs: Math.max(options.timeout ?? 0, 20000),
             });
