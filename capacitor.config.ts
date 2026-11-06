@@ -3,8 +3,10 @@ import type { CapacitorConfig } from '@capacitor/cli';
 // 当前文件：Folia Android Capacitor 容器的构建与 WebView 配置。
 
 const config: CapacitorConfig = {
-  appId: 'top.izuna.foliamajor',
-  appName: 'Folia',
+  // ⚠️ 临时测试包名（与 build.gradle 的 applicationId 一致），测试结束改回
+  // 'top.izuna.foliamajor' / 'Folia'，并同步 strings.xml 的 package_name 与 custom_url_scheme。
+  appId: 'top.izuna.foliamajor.test',
+  appName: 'Folia 测试版',
   webDir: 'dist',
   loggingBehavior: 'debug',
   backgroundColor: '#09090b',

@@ -47,7 +47,10 @@ android {
         }
     }
     defaultConfig {
-        applicationId "top.izuna.foliamajor"
+        // ⚠️ 临时测试包名：与已安装的正式包签名不同，无法覆盖安装，先换包名并存安装。
+        // namespace 保持原值（R / BuildConfig 的包名，Kotlin 源码 package 也是它）。
+        // 测试结束改回 "top.izuna.foliamajor"，并同步 capacitor.config.ts 与 strings.xml。
+        applicationId "top.izuna.foliamajor.test"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // 测试版（`0.7.25.dev2` 这种）的 code 由 package.json 的 androidVersionCode 显式给出：
