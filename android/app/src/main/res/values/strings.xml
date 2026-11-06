@@ -1,9 +1,11 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Folia</string>
-    <string name="title_activity_main">Folia</string>
-    <string name="package_name">top.izuna.foliamajor</string>
-    <string name="custom_url_scheme">top.izuna.foliamajor</string>
+    <!-- ⚠️ 临时测试包：应用名带后缀以便与正式包区分；下面两串与 capacitor.config.ts
+         的 appId / build.gradle 的 applicationId 保持一致，测试结束一起改回。 -->
+    <string name="app_name">Folia 测试版</string>
+    <string name="title_activity_main">Folia 测试版</string>
+    <string name="package_name">top.izuna.foliamajor.test</string>
+    <string name="custom_url_scheme">top.izuna.foliamajor.test</string>
     <string name="lyrics_wallpaper_description">把正在播放的歌词做成动态壁纸</string>
 
     <!-- 启动时的 WebView 体检（见 WebViewUpgrade）。 -->

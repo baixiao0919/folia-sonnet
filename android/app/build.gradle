@@ -40,6 +40,8 @@ def versionCodeOf = { String name ->
 }
 
 android {
+    // namespace 是 R / BuildConfig 的包名，与安装用的 applicationId 可以不同。
+    // 临时测试包只动 applicationId；改这里会让 Kotlin 里所有 R.string / R.id 找不到类。
     namespace = "top.izuna.foliamajor"
     compileSdk {
         version = release(36) {
@@ -47,7 +49,10 @@ android {
         }
     }
     defaultConfig {
-        applicationId "top.izuna.foliamajor"
+        // ⚠️ 临时测试包名：正式包的签名不同，覆盖安装会被系统拒，先换包名并存安装。
+        // 测试结束改回 "top.izuna.foliamajor"，并同步 capacitor.config.ts 的 appId、
+        // strings.xml 的 package_name / custom_url_scheme / 应用名。
+        applicationId "top.izuna.foliamajor.test"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // 测试版（`0.7.25.dev2` 这种）的 code 由 package.json 的 androidVersionCode 显式给出：
