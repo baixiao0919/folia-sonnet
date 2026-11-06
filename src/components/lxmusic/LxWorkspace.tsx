@@ -5,6 +5,7 @@ import type { ProviderCollection } from '../../types/onlineMusic';
 import { useLxWorkspaceStore, type LxWorkspaceTab } from '../../stores/useLxWorkspaceStore';
 import { lxBrowse, lxmusicProvider } from '../../services/onlineMusic/lxmusic/lxmusicProvider';
 import { lxSourceStore } from '../../services/onlineMusic/lxmusic/lxSourceStore';
+import { getLxPreferences } from '../../services/onlineMusic/lxmusic/lxPreferences';
 import {
     LX_PUBLIC_PLATFORMS,
     type LxApiChart,
@@ -89,14 +90,14 @@ export const LxWorkspace: React.FC<LxWorkspaceProps> = ({ theme, isDaylight, onC
         playHintTimer.current = window.setTimeout(() => setPlayHint(null), durationMs);
     }, []);
     const handlePlay = useCallback((song: UnifiedSong) => {
-        // 现在播放一律先走导入的音源，音源不支持这首所在的平台时会自动到别的平台找同一首，
-        // 所以只有「一个音源都没有」才需要拦下来。
-        if (!lxSourceStore.canResolveAny('musicUrl')) {
-            showHint('还没有可用的音源，先去右上角「音源」导入一个', 3600);
+        // 播放一律先走导入的音源；只有「一个音源都没有、且连公开直链兜底也关了」才拦下来。
+        const hasSources = lxSourceStore.canResolveAny('musicUrl');
+        if (!hasSources && !getLxPreferences().allowPublicFallback) {
+            showHint('还没有可用的音源，且已关闭公开直链兜底，先去右上角「音源」导入一个', 3600);
             return;
         }
         onPlayTrack(song);
-        showHint(`正在播放 · ${song.name}`);
+        showHint(hasSources ? `正在播放 · ${song.name}` : `未导入音源，尝试公开直链 · ${song.name}`);
     }, [onPlayTrack, showHint]);
     useEffect(() => () => {
         if (playHintTimer.current) window.clearTimeout(playHintTimer.current);

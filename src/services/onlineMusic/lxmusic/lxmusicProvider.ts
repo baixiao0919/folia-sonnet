@@ -23,6 +23,8 @@ import { raceCandidates, type LxRaceTask } from './lxRace';
 import { proxyNativeRemoteAudioUrl } from '../../nativeRemoteAudio';
 import { hasNativeHttp, nativeHttpRequest } from '../../nativeAndroidBridge';
 import { notePlaybackAttempt } from './lxDiagnostics';
+import { getLxPreferences } from './lxPreferences';
+import { installImportedAudioResolver } from '../../hostExtensionHooks';
 import {
     lxApiAlbumSquare,
     lxApiAlbumTracks,
@@ -246,23 +248,31 @@ const isPublicPlatform = (platform: LxPlatformKey): platform is LxPublicPlatform
 );
 
 /**
- * 「全都走音源」的实现（v15 改成并发竞速）：
- *   1. 本平台所有音源**同时**出手，谁先给出「能被 <audio> 打开」的地址就用谁；
+ * 「全都走音源」的实现（并发竞速）：
+ *   1. 本平台所有音源**同时**出手，谁先给出「能播」的地址就用谁；
  *   2. 同时并行去别家平台搜同一首歌（各家一条链），用那家的 id 再让音源出地址；
- *   3. 最后还有公开免费直链一起参与竞速。
+ *   3. 公开免费直链**不参与竞速** —— 它几乎 0ms 就能算出地址，同场赛跑时每次都赢，
+ *      结果就是「导入了音源，播的还是默认接口」。只有音源整轮都交不出地址时才用它兜底。
  *
  * 这样「一个源不行」不再是「等它超时再试下一个」，而是「别人早就跑在前面了」。
  * 死源会被记进健康度（lxSourceHealth），连续失败后进入冷却，下次直接排到最后。
  *
- * 地址按「平台:原生 id:音质」缓存：内存 30 分钟（同一次会话里直接命中，不探活），
- * 落盘 3 小时（下次开 App 也能秒开，但命中时先探一下活，免得拿到过期的签名）。
+ * 缓存只记音源给的地址（带 via），按「平台:原生 id:音质」存：内存 30 分钟、落盘 3 小时。
+ * key 换成 v2 是故意的：v1 里存的很可能是公开直链，不能让它们继续抢在音源前面命中。
  */
 const PLAYBACK_CACHE_TTL = 30 * 60 * 1000;
 const PERSISTED_CACHE_TTL = 3 * 60 * 60 * 1000;
-const CACHE_STORAGE_KEY = 'lxmusic_playback_cache_v1';
+const CACHE_STORAGE_KEY = 'lxmusic_playback_cache_v2';
 const CACHE_LIMIT = 400;
 
-type PlaybackCacheEntry = { url: string; at: number; persisted: boolean; headers?: Record<string, string> };
+type PlaybackCacheEntry = {
+    url: string;
+    at: number;
+    persisted: boolean;
+    headers?: Record<string, string>;
+    /** 这个地址是谁给的。只缓存音源结果。 */
+    via?: string;
+};
 
 const playbackCache = new Map<string, PlaybackCacheEntry>();
 let persistedCacheLoaded = false;
@@ -274,15 +284,20 @@ const loadPersistedCache = (): void => {
     try {
         const raw = localStorage.getItem(CACHE_STORAGE_KEY);
         if (!raw) return;
-        const parsed = JSON.parse(raw) as Record<string, { url?: string; at?: number; headers?: Record<string, string> }>;
+        const parsed = JSON.parse(raw) as Record<string, {
+            url?: string; at?: number; headers?: Record<string, string>; via?: string;
+        }>;
         const now = Date.now();
         Object.entries(parsed).forEach(([key, value]) => {
             if (typeof value?.url !== 'string' || typeof value?.at !== 'number') return;
             if (now - value.at > PERSISTED_CACHE_TTL) return;
+            // 旧格式 / 公开直链的缓存一律不复活，逼这次重新问音源。
+            if (!value.via || value.via.startsWith('公开直链')) return;
             playbackCache.set(key, {
                 url: value.url,
                 at: value.at,
                 persisted: true,
+                via: value.via,
                 ...(value.headers && typeof value.headers === 'object' ? { headers: value.headers } : {}),
             });
         });
@@ -313,18 +328,26 @@ const readCachedUrl = (key: string): PlaybackCacheEntry | null => {
     const entry = playbackCache.get(key);
     if (!entry) return null;
     const ttl = entry.persisted ? PERSISTED_CACHE_TTL : PLAYBACK_CACHE_TTL;
-    if (Date.now() - entry.at > ttl) {
+    if (Date.now() - entry.at > ttl || !entry.via || entry.via.startsWith('公开直链')) {
         playbackCache.delete(key);
         return null;
     }
     return entry;
 };
 
-const writeCachedUrl = (key: string, url: string, headers?: Record<string, string>): void => {
+const writeCachedUrl = (
+    key: string,
+    url: string,
+    via: string | undefined,
+    headers?: Record<string, string>,
+): void => {
+    // 公开直链是兜底，不写缓存：下次播放要先给音源一次机会。
+    if (!via || via.startsWith('公开直链')) return;
     playbackCache.set(key, {
         url,
         at: Date.now(),
         persisted: false,
+        via,
         ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
     });
     saveCacheSoon();
@@ -449,6 +472,15 @@ const probeAudioUrl = async (value: unknown): Promise<boolean> => {
 };
 
 type AudioCandidate = { url: string; headers?: Record<string, string>; via?: string };
+
+/** 诊断里只记主机名，不把带签名的完整 URL 落到本地。 */
+const hostOf = (url: string): string | undefined => {
+    try {
+        return new URL(url).host;
+    } catch {
+        return undefined;
+    }
+};
 
 const asCandidate = (value: string | AudioCandidate | null): AudioCandidate | null => {
     if (!value) return null;
@@ -598,6 +630,17 @@ export const lxmusicProvider: OnlineMusicProvider = {
                 // 落盘的地址可能过期，但「每次播放先探活」有两个代价：一次最多 5 秒的干等，
                 // 以及不支持 Range 的 CDN 会被误判成死地址、白白丢掉本来能播的链接。
                 // 直接交给播放器：真过期时播放器的在线恢复会重新取地址，比先探后播快得多。
+                // 这里只可能命中音源给的地址（writeCachedUrl 不收公开直链）。
+                notePlaybackAttempt({
+                    platform: parsed.platform,
+                    songId: parsed.nativeId,
+                    name: song.name,
+                    quality,
+                    ok: true,
+                    ms: Date.now() - startedAt,
+                    via: `缓存/${cached.via ?? '音源'}`,
+                    host: hostOf(cached.url),
+                });
                 return {
                     url: await toPlayableSource({ url: cached.url, headers: cached.headers }),
                     fetchedAt: cached.at,
@@ -610,51 +653,38 @@ export const lxmusicProvider: OnlineMusicProvider = {
             await lxSourceStore.ensureReady();
 
             /**
-             * 给定音质，把所有候选一起放出去：
-             *   1) 本平台每个音源一条任务，谁先出「能播」的地址谁赢；
-             *   2) 每家跨平台一条链（搜同款 → 那家的音源出地址），各家并行不排队；
-             *   3) 公开免费直链一起参与，酷我 / 酷狗的免费曲目常常比音源还快。
+             * 只用导入的音源取地址：本平台每个音源一条任务，外加「去别家搜同款、再用那家音源」
+             * 的并行链。公开免费直链**故意不在这里** —— 它几乎 0ms 就能算出地址（网易云外链
+             * 甚至不用发请求），同场竞速时每首歌都是它赢，用户导入的音源永远轮不上。
+             * probe=false 时不验收地址，留给探活全被误判时的最后一次机会。
              */
-            const raceFor = (
+            const raceSources = (
                 targetQuality: AudioQualityPreference,
-                probe = true,
-                includePublicLink = true,
+                probe: boolean,
+                includeCrossPlatform = true,
             ): Promise<AudioCandidate | null> => {
                 const tasks: LxRaceTask<AudioCandidate>[] = [];
                 tasks.push(...sourceTasksFor(parsed.platform, parsed.nativeId, song, targetQuality, probe));
 
-                for (const platform of FALLBACK_PLATFORM_ORDER) {
-                    if (platform === parsed.platform) continue;
-                    if (!lxSourceStore.canResolve(platform, 'musicUrl')) continue;
-                    // 已知全在冷却的平台往后排：别让它们占着并发名额。
-                    const priority = lxSourceStore.hasLiveSourceFor(platform, 'musicUrl') ? 0 : 1;
-                    tasks.push({
-                        label: `跨平台/${platform}`,
-                        priority,
-                        run: async () => {
-                            const nativeId = await findNativeIdOn(platform, song);
-                            if (!nativeId) return null;
-                            const chain = sourceTasksFor(platform, nativeId, song, targetQuality, probe);
-                            if (chain.length === 0) return null;
-                            // 链内部也竞速，但别和外面抢太多并发：两个一起试就够。
-                            return raceCandidates(chain, { initial: 2, staggerMs: 300, maxConcurrent: 2 });
-                        },
-                    });
-                }
-
-                const publicPlatform = parsed.platform;
-                if (includePublicLink && isPublicPlatform(publicPlatform)) {
-                    tasks.push({
-                        label: `公开直链/${publicPlatform}`,
-                        run: async () => {
-                            const url = await lxApiFreeAudioUrl(publicPlatform, parsed.nativeId);
-                            if (!url) return null;
-                            // 不验收的最后一轮里，公开直链不再二次探活。
-                            return !probe || (await probeAudioUrl(url))
-                                ? { url, via: `公开直链/${publicPlatform}` }
-                                : null;
-                        },
-                    });
+                if (includeCrossPlatform) {
+                    for (const platform of FALLBACK_PLATFORM_ORDER) {
+                        if (platform === parsed.platform) continue;
+                        if (!lxSourceStore.canResolve(platform, 'musicUrl')) continue;
+                        // 已知全在冷却的平台往后排：别让它们占着并发名额。
+                        const priority = lxSourceStore.hasLiveSourceFor(platform, 'musicUrl') ? 0 : 1;
+                        tasks.push({
+                            label: `跨平台/${platform}`,
+                            priority,
+                            run: async () => {
+                                const nativeId = await findNativeIdOn(platform, song);
+                                if (!nativeId) return null;
+                                const chain = sourceTasksFor(platform, nativeId, song, targetQuality, probe);
+                                if (chain.length === 0) return null;
+                                // 链内部也竞速，但别和外面抢太多并发：两个一起试就够。
+                                return raceCandidates(chain, { initial: 2, staggerMs: 300, maxConcurrent: 2 });
+                            },
+                        });
+                    }
                 }
 
                 if (tasks.length === 0) return Promise.resolve(null);
@@ -662,25 +692,35 @@ export const lxmusicProvider: OnlineMusicProvider = {
                 return raceCandidates(tasks, { initial: 3, staggerMs: 220, maxConcurrent: 6 });
             };
 
-            let winner = await raceFor(quality);
+            /** 公开免费直链：只在音源整轮交不出地址时兜底，且不写缓存。 */
+            const publicFallback = async (): Promise<AudioCandidate | null> => {
+                const platform = parsed.platform;
+                if (!isPublicPlatform(platform)) return null;
+                const url = await lxApiFreeAudioUrl(platform, parsed.nativeId);
+                if (!url || !(await probeAudioUrl(url))) return null;
+                return { url, via: `公开直链/${platform}` };
+            };
+
+            let winner = await raceSources(quality, true);
             // 首选音质整轮都没成（源只给无损、而设备放不动，或这一档的链接全过期）时，
             // 再用标准音质试一轮：能出声比音质重要。
             if (!winner && quality !== 'standard') {
                 console.warn(`[lxmusic] ${parsed.platform}:${parsed.nativeId} 在 ${quality} 没有可用地址，降到标准音质再试`);
-                winner = await raceFor('standard');
+                winner = await raceSources('standard', true);
             }
 
             if (!winner) {
-                /**
-                 * 最后一根稻草：所有候选都没通过探活。
-                 * 探活本身可能是误判（CDN 不认 Range / 头部要求特殊 / 首包太慢），
-                 * 而「交给播放器试一次」的代价远小于「直接把这首歌跳过」。
-                 */
-                console.warn(`[lxmusic] ${parsed.platform}:${parsed.nativeId} 全部探活失败，取一个未验收的地址兜底`);
-                // 只让音源参与：公开直链是不发请求就算出来的（尤其网易云外链），
-                // 在不验收的这一轮里它会 0ms「赢」，把真正可能能播的音源地址挤掉。
-                winner = await raceFor(quality, false, false);
-                if (!winner && quality !== 'standard') winner = await raceFor('standard', false, false);
+                // 探活可能误判（CDN 不认 Range / 首包太慢 / 要求特殊头），
+                // 让音源不验收再给一次地址，交给播放器直接试。
+                console.warn(`[lxmusic] ${parsed.platform}:${parsed.nativeId} 探活全失败，取一个未验收的音源地址再试`);
+                // 这一轮只问本平台的音源：跨平台要先搜同款，会再拖一轮请求。
+                winner = await raceSources(quality, false, false);
+            }
+
+            // 到这里音源（含跨平台、两轮机会）都没交出地址，才轮到默认公开接口。
+            if (!winner && getLxPreferences().allowPublicFallback) {
+                console.warn(`[lxmusic] ${parsed.platform}:${parsed.nativeId} 音源全失败，改用公开直链兜底`);
+                winner = await publicFallback();
             }
             if (!winner) {
                 notePlaybackAttempt({
@@ -690,11 +730,12 @@ export const lxmusicProvider: OnlineMusicProvider = {
                     quality,
                     ok: false,
                     ms: Date.now() - startedAt,
-                    error: '所有音源与公开直链都没给出可用地址',
+                    error: '所有导入音源都没给出可用地址（公开直链兜底已关闭或也失败）',
                 });
                 return null;
             }
-            writeCachedUrl(cacheKey, winner.url, winner.headers);
+            const via = winner.via ?? '音源';
+            writeCachedUrl(cacheKey, winner.url, via, winner.headers);
             const playableUrl = await toPlayableSource(winner);
             notePlaybackAttempt({
                 platform: parsed.platform,
@@ -703,15 +744,8 @@ export const lxmusicProvider: OnlineMusicProvider = {
                 quality,
                 ok: true,
                 ms: Date.now() - startedAt,
-                via: winner.via,
-                host: (() => {
-                    try {
-                        return new URL(winner.url).host;
-                    } catch {
-                        return undefined;
-                    }
-                })(),
-                error: playableUrl === winner.url ? undefined : undefined,
+                via,
+                host: hostOf(winner.url),
             });
             return {
                 url: playableUrl,
@@ -802,6 +836,60 @@ export const lxBrowse = {
     searchSongs: lxApiSearchSongs,
     toSong: toUnifiedSong,
     toCollection: toProviderCollection,
+};
+
+// ---------------------------------------------------------------- 全局音源路由
+
+/** 官方 provider 的 id → 洛雪自定义音源认的平台前缀。 */
+const PROVIDER_TO_LX_PLATFORM: Record<string, LxPlatformKey> = {
+    netease: 'wy',
+    kugou: 'kg',
+    qq: 'tx',
+    kuwo: 'kw',
+};
+
+/**
+ * 把任意在线歌曲临时包装成洛雪 provider 认的样子，只为「问音源要地址」这一次；
+ * 队列里、界面上显示的仍是原来那首歌，sourceRef 不会被改写。
+ */
+const asLxSong = (song: SongResult): SongResult | null => {
+    const ref = song.sourceRef;
+    // 洛雪自己的歌本来就走这个 provider，别在这里重复问一次音源。
+    if (ref?.kind !== 'online' || ref.providerId === 'lxmusic') return null;
+    const platform = PROVIDER_TO_LX_PLATFORM[ref.providerId];
+    if (!platform) return null;
+    const raw = String(ref.mediaId ?? song.id);
+    const separator = raw.indexOf(':');
+    const nativeId = separator > 0 ? raw.slice(separator + 1) : raw;
+    if (!nativeId) return null;
+    const id = makeId(platform, nativeId);
+    return {
+        ...song,
+        id,
+        sourceRef: {
+            kind: 'online',
+            providerId: 'lxmusic',
+            mediaId: String(id),
+            providerData: { platform, nativeId },
+        },
+    };
+};
+
+/**
+ * 装到 omni 的「取地址之前」扩展点：只要导入了音源，所有在线歌曲（不只是洛雪工作台里的）
+ * 都先让音源续一次地址；音源交不出来就返回 null，官方 provider 照常接手。
+ * 没导入音源、或用户在音源页关掉开关时，这一层几乎零开销地让路。
+ */
+export const installLxAudioRouting = (): void => {
+    installImportedAudioResolver(async (song, quality) => {
+        if (!getLxPreferences().routeAllSongs) return null;
+        const lxSong = asLxSong(song);
+        if (!lxSong) return null;
+        await lxSourceStore.ensureReady();
+        if (!lxSourceStore.canResolveAny('musicUrl')) return null;
+        console.info(`[lxmusic] 音源接管取地址：${song.name} (${song.sourceRef?.kind === 'online' ? song.sourceRef.providerId : '?'})`);
+        return lxmusicProvider.playback?.getAudioSource(lxSong, quality) ?? null;
+    });
 };
 
 void lxSourceStore.init();

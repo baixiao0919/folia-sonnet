@@ -3,7 +3,18 @@ import { lxSourceStore } from '../../services/onlineMusic/lxmusic/lxSourceStore'
 import { importLxSourceFromFile, importLxSourceFromUrl, type ImportResult } from '../../services/onlineMusic/lxmusic/lxImportService';
 import type { LxSource } from '../../services/onlineMusic/lxmusic/lxTypes';
 import { LX_PUBLIC_PLATFORMS } from '../../services/onlineMusic/lxmusic/lxPublicApi';
-import { formatPlaybackDiagnostics, clearPlaybackDiagnostics } from '../../services/onlineMusic/lxmusic/lxDiagnostics';
+import {
+    formatPlaybackDiagnostics,
+    clearPlaybackDiagnostics,
+    readPlaybackDiagnostics,
+    type LxPlaybackDiag,
+} from '../../services/onlineMusic/lxmusic/lxDiagnostics';
+import {
+    getLxPreferences,
+    setLxPreferences,
+    subscribeLxPreferences,
+    type LxPreferences,
+} from '../../services/onlineMusic/lxmusic/lxPreferences';
 
 // src/components/lxmusic/LxSourcePanel.tsx
 // 洛雪「音源」页：粘贴网址导入 / 选 .js·.json 文件导入，列出已导入的音源并启用、停用、删除。
@@ -27,6 +38,11 @@ export const LxSourcePanel: React.FC<LxSourcePanelProps> = ({ onChanged }) => {
     const [dragging, setDragging] = useState(false);
     const [sources, setSources] = useState<LxSource[]>(() => lxSourceStore.getSources());
     const [diagText, setDiagText] = useState<string | null>(null);
+    const [prefs, setPrefs] = useState<LxPreferences>(getLxPreferences);
+    const [lastAttempt, setLastAttempt] = useState<LxPlaybackDiag | null>(() => {
+        const list = readPlaybackDiagnostics();
+        return list.length > 0 ? list[list.length - 1] : null;
+    });
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -38,6 +54,13 @@ export const LxSourcePanel: React.FC<LxSourcePanelProps> = ({ onChanged }) => {
         void lxSourceStore.init();
         return unsubscribe;
     }, [onChanged]);
+
+    useEffect(() => subscribeLxPreferences(() => setPrefs(getLxPreferences())), []);
+
+    const refreshLastAttempt = () => {
+        const list = readPlaybackDiagnostics();
+        setLastAttempt(list.length > 0 ? list[list.length - 1] : null);
+    };
 
     const report = (result: ImportResult) => {
         if (result.ok) {
@@ -60,6 +83,7 @@ export const LxSourcePanel: React.FC<LxSourcePanelProps> = ({ onChanged }) => {
     };
 
     const copyDiagnostics = async () => {
+        refreshLastAttempt();
         const text = formatPlaybackDiagnostics();
         try {
             await navigator.clipboard.writeText(text);
@@ -84,8 +108,37 @@ export const LxSourcePanel: React.FC<LxSourcePanelProps> = ({ onChanged }) => {
     return (
         <div className="flex flex-col gap-4">
             <div className="lx-notice">
-                音源只负责「取播放地址与歌词」。搜索、歌单广场、榜单由洛雪内置的公开接口提供，不用导入也能看、能搜；
-                网易云与酷狗的歌要有对应平台的音源才能出声，酷我有免费直链。
+                导入的音源负责「取播放地址与歌词」，且优先于默认播放接口：搜索、歌单广场、榜单仍由洛雪内置的公开接口提供。
+                只有所有音源都交不出地址时，才会（在开关允许的前提下）退回公开免费直链。
+            </div>
+
+            <div className="lx-notice flex flex-col gap-2">
+                <div className="text-[12px] font-semibold">播放路由</div>
+                <label className="flex items-start gap-2 text-[11px] leading-4">
+                    <input
+                        type="checkbox"
+                        className="mt-0.5 shrink-0"
+                        checked={prefs.routeAllSongs}
+                        onChange={(event) => setLxPreferences({ routeAllSongs: event.target.checked })}
+                    />
+                    <span>所有歌曲都先走导入的音源（含网易云 / 酷狗 / QQ 等其它来源）；音源都失败才回落原来的播放接口。</span>
+                </label>
+                <label className="flex items-start gap-2 text-[11px] leading-4">
+                    <input
+                        type="checkbox"
+                        className="mt-0.5 shrink-0"
+                        checked={prefs.allowPublicFallback}
+                        onChange={(event) => setLxPreferences({ allowPublicFallback: event.target.checked })}
+                    />
+                    <span>音源全失败时允许公开免费直链兜底。关掉后严格只用音源，放不出来就是放不出来。</span>
+                </label>
+                {lastAttempt && (
+                    <p className="text-[10.5px] leading-4 text-[color:var(--lx-faint)]">
+                        最近一次取地址：{lastAttempt.ok ? '成功' : '失败'} · {lastAttempt.via ?? '未知来源'}
+                        {lastAttempt.host ? ` · ${lastAttempt.host}` : ''}
+                        {lastAttempt.name ? ` · ${lastAttempt.name}` : ''}
+                    </p>
+                )}
             </div>
 
             <div className="lx-chips">
@@ -230,7 +283,7 @@ export const LxSourcePanel: React.FC<LxSourcePanelProps> = ({ onChanged }) => {
                 <button
                     type="button"
                     className="lx-btn-ghost"
-                    onClick={() => { clearPlaybackDiagnostics(); setDiagText(null); setFeedback({ kind: 'ok', text: '播放记录已清空。' }); }}
+                    onClick={() => { clearPlaybackDiagnostics(); setDiagText(null); setLastAttempt(null); setFeedback({ kind: 'ok', text: '播放记录已清空。' }); }}
                 >
                     清空记录
                 </button>

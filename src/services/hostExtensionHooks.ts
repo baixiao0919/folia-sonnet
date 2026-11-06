@@ -1,5 +1,10 @@
 import type { LyricData, SongResult } from '../types';
-import type { OnlineFailureCaseId, ProviderAudioSource, ProviderLyricsResult } from '../types/onlineMusic';
+import type {
+    AudioQualityPreference,
+    OnlineFailureCaseId,
+    ProviderAudioSource,
+    ProviderLyricsResult,
+} from '../types/onlineMusic';
 import { ensureLyricDataRenderHints } from '../utils/lyrics/renderHints';
 
 // src/services/hostExtensionHooks.ts
@@ -150,6 +155,36 @@ export const applyOmniAudioHook = async (song: SongResult, source: ProviderAudio
     } catch (error) {
         console.warn('[HostHooks] omni audio hook failed; using the provider source', error);
         return source;
+    }
+};
+
+/*
+ * Imported-source audio, asked BEFORE the song's own provider (playbackMethods.getAudioSource).
+ * The LX custom-source layer installs this; with nothing installed, or when it answers null,
+ * the provider path runs exactly as before. Passing a song with no matching platform is a
+ * cheap pass-through, so this never adds a network round trip for songs the sources cannot serve.
+ */
+export type ImportedAudioResolver = (
+    song: SongResult,
+    quality: AudioQualityPreference,
+) => Promise<ProviderAudioSource | null>;
+
+let importedAudioResolver: ImportedAudioResolver | null = null;
+
+export const installImportedAudioResolver = (resolver: ImportedAudioResolver | null): void => {
+    importedAudioResolver = resolver;
+};
+
+export const applyImportedAudioResolver = async (
+    song: SongResult,
+    quality: AudioQualityPreference,
+): Promise<ProviderAudioSource | null> => {
+    if (!importedAudioResolver) return null;
+    try {
+        return await importedAudioResolver(song, quality);
+    } catch (error) {
+        console.warn('[HostHooks] imported-source audio failed; using the provider source', error);
+        return null;
     }
 };
 
