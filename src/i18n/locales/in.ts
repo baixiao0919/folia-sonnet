@@ -6568,8 +6568,9 @@ export default {
   "lanCastDevices": "{{count}} speaker ditemukan",
   "lanCastRescan": "Cari ulang",
   "lanCastNoDevice": "Speaker tidak ditemukan. Pastikan ponsel dan speaker memakai WiFi yang sama dan DLNA aktif di speaker.",
-  "lanCastPlaying": "Diputar di {{name}}",
-  "lanCastLocalHint": "Speaker memutar stream sendiri; ponsel tetap bermain, jeda secara manual bila perlu.",
-  "lanCastStop": "Hentikan kiriman",
+  "lanCastPlaying": "Suara ada di {{name}}, ponsel dibisukan",
+  "lanCastFollowed": "Ganti lagu otomatis dikirim ke {{name}}",
+  "lanCastLocalHint": "Ponsel dibisukan, bilah progres dan lirik tetap berjalan; ganti lagu otomatis mengikuti di speaker.",
+  "lanCastStop": "Hentikan kiriman dan pulihkan suara ponsel",
   "lanCastClose": "Tutup"
 } as const;

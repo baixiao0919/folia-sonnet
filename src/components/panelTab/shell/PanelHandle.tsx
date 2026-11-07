@@ -326,11 +326,13 @@ const PanelHandle: React.FC<PanelHandleProps> = ({
 
     return (
         <>
-        {/* 投送按钮共用右下角那颗按钮的隐藏条件与贴底基线，所以两者同时出现、同时消失。 */}
+        {/* 投送按钮是右下角那颗的左下镜像：共用隐藏条件、贴底基线、配色，同时出现同时消失。 */}
         <LanCastControl
             hidden={hideToggleButton || (isOpen && !showOpenPanelCloseButton) || isCommandPaletteOpen}
             bottom={handleBottom}
             isDaylight={isDaylight}
+            isOpen={isOpen}
+            isCommandPaletteOpen={isCommandPaletteOpen}
         />
         <AnimatePresence>
             {!hideToggleButton && (!isOpen || showOpenPanelCloseButton) && !isCommandPaletteOpen && (

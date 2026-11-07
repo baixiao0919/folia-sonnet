@@ -4,19 +4,24 @@ import { Cast, Loader2, RefreshCw, Speaker, Square, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui';
 import { usePlaybackStore, selectDisplaySong, selectDisplayCoverUrl } from '../../stores/usePlaybackStore';
+import { useAudioSettingsStore } from '../../stores/useAudioSettingsStore';
 import { getSongArtistLabel } from '../../services/onlineMusic/songMetadata';
 import {
     castTrackToSpeaker,
     discoverLanSpeakers,
+    ensureCastingMute,
+    getCastingSpeaker,
     isLanCastAvailable,
     lanCastErrorText,
     stopCastingToSpeaker,
+    subscribeCasting,
+    type LanCastTrack,
     type LanSpeaker,
 } from '../../services/lanCast';
 
 // src/components/lan-cast/LanCastControl.tsx
-// 播放页右下角的投送入口：按钮跟右侧 chrome 一起出现 / 一起消失（由 PanelHandle 传入
-// hideToggleButton），点开后弹出设备清单，把当前歌曲交给局域网里的 DLNA / UPnP 音响。
+// 播放页左下角的投送入口：与 PanelHandle 右下角那颗按钮镜像对称（同一隐藏条件、同一贴底
+// 基线、同一配色与透明度）。投送成功后手机静音但不暂停，进度条和歌词照常走，声音只在音响上。
 
 type LanCastControlProps = {
     /** 与右下角那颗按钮共用的隐藏条件，保证两者同时出现、同时消失。 */
@@ -24,6 +29,8 @@ type LanCastControlProps = {
     /** PanelHandle 的贴底基线，避免和底部控制条 / 右侧按钮错位。 */
     bottom: MotionValue<number>;
     isDaylight: boolean;
+    isOpen: boolean;
+    isCommandPaletteOpen: boolean;
 };
 
 const hostOf = (location: string): string => {
@@ -34,13 +41,19 @@ const hostOf = (location: string): string => {
     }
 };
 
-const LanCastControl: React.FC<LanCastControlProps> = ({ hidden, bottom, isDaylight }) => {
+const LanCastControl: React.FC<LanCastControlProps> = ({
+    hidden,
+    bottom,
+    isDaylight,
+    isOpen,
+    isCommandPaletteOpen,
+}) => {
     const { t } = useTranslation();
     const [open, setOpen] = React.useState(false);
     const [devices, setDevices] = React.useState<LanSpeaker[]>([]);
     const [scanning, setScanning] = React.useState(false);
     const [castingUrl, setCastingUrl] = React.useState<string | null>(null);
-    const [active, setActive] = React.useState<LanSpeaker | null>(null);
+    const [active, setActive] = React.useState<LanSpeaker | null>(() => getCastingSpeaker());
     const [error, setError] = React.useState('');
     const [notice, setNotice] = React.useState('');
     const panelBottom = useTransform(bottom, value => value + 64);
@@ -48,7 +61,26 @@ const LanCastControl: React.FC<LanCastControlProps> = ({ hidden, bottom, isDayli
     const audioSrc = usePlaybackStore(state => state.audioSrc);
     const song = usePlaybackStore(selectDisplaySong);
     const coverUrl = usePlaybackStore(selectDisplayCoverUrl);
+    const isMuted = useAudioSettingsStore(state => state.isMuted);
     const available = isLanCastAvailable();
+
+    // 会话存在服务层：进出播放页时组件会卸载重挂，仍能恢复「正在投送」的显示。
+    React.useEffect(() => subscribeCasting(() => setActive(getCastingSpeaker())), []);
+
+    // 投送期间始终静音。拖音量条之类的动作会悄悄取消静音，这里立刻压回去，
+    // 保证不会出现「音响和手机同时出声」。
+    React.useEffect(() => {
+        if (!isMuted) ensureCastingMute();
+    }, [isMuted]);
+
+    const buildTrack = React.useCallback((): LanCastTrack => ({
+        url: audioSrc ?? '',
+        title: song?.name ?? '',
+        artist: getSongArtistLabel(song),
+        album: song?.album?.name ?? '',
+        coverUrl: coverUrl ?? '',
+        durationMs: song?.durationMs ?? 0,
+    }), [audioSrc, song, coverUrl]);
 
     const scan = React.useCallback(async () => {
         setScanning(true);
@@ -71,20 +103,42 @@ const LanCastControl: React.FC<LanCastControlProps> = ({ hidden, bottom, isDayli
         if (!open) setError('');
     }, [open, available, scan]);
 
+    const trackKey = song ? `${song.id}::${song.name}` : '';
+    const pushedSongRef = React.useRef<string | null>(null);
+    const pushedSrcRef = React.useRef<string | null>(null);
+
+    // 手机当遥控器：投送期间切歌，自动把新歌推给同一台音响。
+    // store 切歌是「先写 currentSong、再异步写 audioSrc」，只看歌曲变化会拿到旧地址配新歌名。
+    // 所以要等播放地址也换了才推；同一首歌的 token 变化则忽略，免得把音响反复打断重播。
+    React.useEffect(() => {
+        if (!trackKey) return;
+        if (pushedSongRef.current === null) {
+            pushedSongRef.current = trackKey;
+            pushedSrcRef.current = audioSrc;
+            return;
+        }
+        if (pushedSongRef.current === trackKey) return;
+        if (!audioSrc || audioSrc === pushedSrcRef.current) return;
+        const speaker = getCastingSpeaker();
+        if (!speaker) return;
+        pushedSongRef.current = trackKey;
+        pushedSrcRef.current = audioSrc;
+        void castTrackToSpeaker(speaker, buildTrack())
+            .then(() => {
+                setNotice(t('lanCastFollowed', { name: speaker.name }));
+                setError('');
+            })
+            .catch(followError => setError(lanCastErrorText(followError)));
+    }, [trackKey, audioSrc, buildTrack, t]);
+
     const castTo = async (device: LanSpeaker) => {
         setCastingUrl(device.controlUrl);
         setError('');
         setNotice('');
         try {
-            await castTrackToSpeaker(device, {
-                url: audioSrc ?? '',
-                title: song?.name ?? '',
-                artist: getSongArtistLabel(song),
-                album: song?.album?.name ?? '',
-                coverUrl: coverUrl ?? '',
-                durationMs: song?.durationMs ?? 0,
-            });
-            setActive(device);
+            await castTrackToSpeaker(device, buildTrack());
+            pushedSongRef.current = trackKey;
+            pushedSrcRef.current = audioSrc;
             setNotice(t('lanCastPlaying', { name: device.name }));
         } catch (castError) {
             setError(lanCastErrorText(castError));
@@ -96,8 +150,7 @@ const LanCastControl: React.FC<LanCastControlProps> = ({ hidden, bottom, isDayli
     const stop = async () => {
         setError('');
         try {
-            await stopCastingToSpeaker(active);
-            setActive(null);
+            await stopCastingToSpeaker();
             setNotice('');
         } catch (stopError) {
             setError(lanCastErrorText(stopError));
@@ -106,6 +159,11 @@ const LanCastControl: React.FC<LanCastControlProps> = ({ hidden, bottom, isDayli
 
     if (!available) return null;
 
+    // 与 PanelHandle 右下角那颗按钮逐字一致的配色与透明度，左右看是一对。
+    const buttonTone = isOpen
+        ? 'bg-white text-black'
+        : (isDaylight ? 'bg-white/70 text-zinc-900' : 'bg-black/40 text-white');
+    const buttonClass = `w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg backdrop-blur-md transform border-none relative ${buttonTone}`;
     const glass = isDaylight
         ? 'border-black/10 bg-white/85 text-zinc-900'
         : 'border-white/10 bg-black/70 text-white';
@@ -117,23 +175,27 @@ const LanCastControl: React.FC<LanCastControlProps> = ({ hidden, bottom, isDayli
             <AnimatePresence>
                 {!hidden && (
                     <motion.div
-                        initial={{ opacity: 0, x: 20, y: 12, scale: 0.92 }}
+                        initial={{ opacity: 0, x: -20, y: 12, scale: 0.92 }}
                         animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, x: 20, y: 12, scale: 0.92 }}
+                        exit={isCommandPaletteOpen
+                            ? { opacity: 0, x: 0, y: 0, scale: 1 }
+                            : { opacity: 0, x: -20, y: 12, scale: 0.92 }}
                         transition={{ duration: 0.24, ease: 'easeOut' }}
                         style={{ bottom }}
                         data-folia-safe-bottom="shift"
-                        className="pointer-events-auto fixed right-[72px] z-[60] md:right-[88px]"
+                        data-folia-safe-left="shift"
+                        className="pointer-events-auto fixed left-0 z-[60] pl-4 md:pl-8 group w-20 flex justify-start"
                     >
                         <Button
                             tip={t('lanCastTitle')}
                             aria-label={t('lanCastTitle')}
                             onClick={() => setOpen(value => !value)}
-                            className={`flex h-12 w-12 items-center justify-center rounded-full border shadow-lg backdrop-blur-md transition-transform hover:scale-105 ${
-                                active ? 'border-emerald-400/40 bg-emerald-500/25 text-emerald-300' : glass
-                            }`}
+                            className={buttonClass}
                         >
                             <Cast size={20} />
+                            {active && (
+                                <span className="pointer-events-none absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.9)]" />
+                            )}
                         </Button>
                     </motion.div>
                 )}
@@ -147,7 +209,7 @@ const LanCastControl: React.FC<LanCastControlProps> = ({ hidden, bottom, isDayli
                         exit={{ opacity: 0, y: 12, scale: 0.97 }}
                         transition={{ duration: 0.2, ease: 'easeOut' }}
                         style={{ bottom: panelBottom }}
-                        className={`pointer-events-auto fixed right-4 z-[70] flex max-h-[min(60vh,30rem)] w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 rounded-2xl border p-4 shadow-2xl backdrop-blur-xl md:right-8 ${glass}`}
+                        className={`pointer-events-auto fixed left-4 z-[70] flex max-h-[min(60vh,30rem)] w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 rounded-2xl border p-4 shadow-2xl backdrop-blur-xl md:left-8 ${glass}`}
                     >
                         <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0">
@@ -174,6 +236,9 @@ const LanCastControl: React.FC<LanCastControlProps> = ({ hidden, bottom, isDayli
                         )}
                         {notice && !error && (
                             <div className={`rounded-lg border px-3 py-2 text-xs ${row}`}>{notice}</div>
+                        )}
+                        {active && (
+                            <div className={`text-[11px] leading-snug ${soft}`}>{t('lanCastLocalHint')}</div>
                         )}
 
                         <div className="flex items-center justify-between gap-2">
@@ -214,10 +279,6 @@ const LanCastControl: React.FC<LanCastControlProps> = ({ hidden, bottom, isDayli
                                 );
                             })}
                         </div>
-
-                        {active && (
-                            <div className={`text-[11px] leading-snug ${soft}`}>{t('lanCastLocalHint')}</div>
-                        )}
 
                         {active && (
                             <Button

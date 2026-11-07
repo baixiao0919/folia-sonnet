@@ -1,8 +1,10 @@
 // src/services/lanCast.ts
 // 局域网音响投送的前端门面。SSDP 发现与 SOAP 推送都在 FoliaLanCast 原生插件里，
-// 这里只负责能力探测、把本机回环转发地址换成音响能连的局域网地址，以及归一化错误。
+// 这里负责能力探测、把本机回环转发地址换成音响能连的局域网地址、归一化错误，
+// 以及投送会话本身的生命周期（手机静音 / 还原、跨组件共享当前音响）。
 
 import { isCapacitorAndroid } from '../platform/runtime';
+import { useAudioSettingsStore } from '../stores/useAudioSettingsStore';
 
 export type LanSpeaker = {
     id: string;
@@ -90,6 +92,79 @@ const toCastableUrl = async (raw: string): Promise<string> => {
     return url.toString();
 };
 
+// ------------------------------------------------------------------ 投送会话
+
+const MUTE_STORAGE_KEY = 'player_is_muted';
+
+type CastSession = {
+    speaker: LanSpeaker;
+    /** 投送前手机是否本就静音。停止投送时据此还原，别把用户原本的静音一起解掉。 */
+    wasMuted: boolean;
+    /** 投送前 localStorage 里的原值（null = 当时没有这个 key）。 */
+    storedMuted: string | null;
+};
+
+// 会话放在模块里而不是组件 state：离开播放页时 LanCastControl 会卸载，
+// 但音响还在播，手机必须保持静音；回到播放页时也要能恢复「正在投送」的显示。
+let activeSession: CastSession | null = null;
+const listeners = new Set<() => void>();
+const notifyCasting = () => { for (const listener of listeners) listener(); };
+
+export const subscribeCasting = (listener: () => void): (() => void) => {
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
+};
+export const getCastingSpeaker = (): LanSpeaker | null => activeSession?.speaker ?? null;
+export const isCasting = (): boolean => activeSession !== null;
+
+const readStoredMuted = (): string | null => {
+    if (typeof window === 'undefined') return null;
+    try { return localStorage.getItem(MUTE_STORAGE_KEY); } catch { return null; }
+};
+
+/**
+ * handleSetMuted 会顺手把状态写进 localStorage。投送期间的静音只该是「这一次会话」的，
+ * 否则中途被杀进程，下次打开应用会莫名其妙没声音。这里把落盘的值改回投送前的原值，
+ * 内存里的 isMuted 仍然是 true，音量链路照常读到 0。
+ */
+const undoMutePersistence = (stored: string | null) => {
+    if (typeof window === 'undefined') return;
+    try {
+        if (stored === null) localStorage.removeItem(MUTE_STORAGE_KEY);
+        else localStorage.setItem(MUTE_STORAGE_KEY, stored);
+    } catch { /* 存储不可用时忽略。 */ }
+};
+
+/**
+ * 手机端静音，但**不暂停**：项目里 isMuted 只把输出增益降到 0，
+ * 播放时钟（currentTime / lyricCurrentTime）只看 audio.paused，所以进度条和歌词照常走。
+ * 安卓上出声走 ExoPlayer，这条链路也会把它 setVolume(0)，不会两边同时响。
+ */
+const applyCastingMute = () => {
+    const session = activeSession;
+    if (!session) return;
+    const state = useAudioSettingsStore.getState();
+    if (state.isMuted) return;
+    state.handleSetMuted(true);
+    undoMutePersistence(session.storedMuted);
+};
+
+/** 投送期间若被手动取消静音（拖音量条会自动取消），立刻压回去。 */
+export const ensureCastingMute = () => applyCastingMute();
+
+const restoreCastingMute = () => {
+    const session = activeSession;
+    if (!session) return;
+    // 先清会话再改音量：ensureCastingMute 的守卫看到 isCasting() 为 false 就不会把还原压回去。
+    activeSession = null;
+    notifyCasting();
+    const state = useAudioSettingsStore.getState();
+    if (!session.wasMuted && state.isMuted) state.handleSetMuted(false);
+    else undoMutePersistence(session.storedMuted);
+};
+
+// ------------------------------------------------------------------ 对外能力
+
 export const discoverLanSpeakers = async (timeoutMs = 3200): Promise<LanSpeaker[]> => {
     const plugin = cast();
     if (!plugin?.discover) throw new Error('当前设备不支持局域网投送');
@@ -106,20 +181,41 @@ export const castTrackToSpeaker = async (speaker: LanSpeaker, track: LanCastTrac
     } catch (error) {
         throw new Error(errorText(error));
     }
+    // 换音响时，等新音响确实接上了再停旧的；推送失败就什么都不动，
+    // 免得旧音响停了、新的没响、手机还静音。
+    const previous = activeSession;
+    if (previous && previous.speaker.controlUrl !== speaker.controlUrl && plugin.stop) {
+        try {
+            await plugin.stop({ controlUrl: previous.speaker.controlUrl });
+        } catch { /* 旧音响可能已离线，忽略即可。 */ }
+    }
+    // 只有推送真的成功才静音，失败时手机照常出声。
+    // 切歌自动跟随会复用同一会话，保留最初的静音记录，别把状态一层层覆盖掉。
+    activeSession = {
+        speaker,
+        wasMuted: previous ? previous.wasMuted : useAudioSettingsStore.getState().isMuted,
+        storedMuted: previous ? previous.storedMuted : readStoredMuted(),
+    };
+    notifyCasting();
+    applyCastingMute();
 };
 
-/** 停止音响播放，并顺手关掉对局域网开放的转发入口。 */
-export const stopCastingToSpeaker = async (speaker: LanSpeaker | null): Promise<void> => {
+/** 停止音响播放、关掉对局域网开放的转发入口、把手机声音还原。 */
+export const stopCastingToSpeaker = async (): Promise<void> => {
+    const session = activeSession;
     const plugin = cast();
+    let stopError: unknown = null;
     try {
-        if (speaker && plugin?.stop) await plugin.stop({ controlUrl: speaker.controlUrl });
+        if (session && plugin?.stop) await plugin.stop({ controlUrl: session.speaker.controlUrl });
     } catch (error) {
-        throw new Error(errorText(error));
-    } finally {
-        try {
-            await relay()?.lanCastRelease?.();
-        } catch { /* 收口失败不影响停止本身。 */ }
+        // 音响可能已离线；本地状态无论如何都要收口，不能留一个「永远静音」的手机。
+        stopError = error;
     }
+    try {
+        await relay()?.lanCastRelease?.();
+    } catch { /* 收口失败不影响还原。 */ }
+    restoreCastingMute();
+    if (stopError) throw new Error(errorText(stopError));
 };
 
 export const lanCastErrorText = errorText;

@@ -6568,8 +6568,9 @@ export default {
   "lanCastDevices": "{{count}} speakers found",
   "lanCastRescan": "Rescan",
   "lanCastNoDevice": "No speakers found. Make sure the phone and the speaker share the same Wi-Fi and DLNA is enabled on the speaker.",
-  "lanCastPlaying": "Now playing on {{name}}",
-  "lanCastLocalHint": "The speaker streams on its own; the phone keeps playing, so pause it manually if needed.",
-  "lanCastStop": "Stop casting",
+  "lanCastPlaying": "Sound is on {{name}}; the phone is muted",
+  "lanCastFollowed": "Track change sent to {{name}}",
+  "lanCastLocalHint": "The phone is muted, but the progress bar and lyrics keep running. Changing tracks follows on the speaker.",
+  "lanCastStop": "Stop casting and restore phone audio",
   "lanCastClose": "Close"
 } as const;

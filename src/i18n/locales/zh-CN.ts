@@ -6569,8 +6569,9 @@ export default {
   "lanCastDevices": "找到 {{count}} 台音响",
   "lanCastRescan": "重新搜索",
   "lanCastNoDevice": "没搜到音响。请确认手机和音响在同一个 WiFi、且音响已开启 DLNA 投送。",
-  "lanCastPlaying": "已把歌曲交给 {{name}}",
-  "lanCastLocalHint": "音响是独立拉流播放的，手机这边仍在播，可以手动暂停。",
-  "lanCastStop": "停止投送",
+  "lanCastPlaying": "声音已交给 {{name}}，手机已静音",
+  "lanCastFollowed": "切歌已自动推送到 {{name}}",
+  "lanCastLocalHint": "手机已静音，进度条和歌词照常走，声音只在音响上；切歌会自动跟着换。",
+  "lanCastStop": "停止投送并恢复手机声音",
   "lanCastClose": "关闭"
 } as const;
