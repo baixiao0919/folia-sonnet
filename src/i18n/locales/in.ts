@@ -6560,5 +6560,16 @@ export default {
     "body": "Paket ini dibangun dari cabang {{branch}}, bukan dari main atau cabang release/. Fitur bisa belum lengkap dan data bisa bermasalah — jangan pakai sebagai versi sehari-hari.",
     "unknownBranch": "cabang tak dikenal",
     "ok": "Mengerti"
-  }
+  },
+  "lanCastTitle": "Kirim ke speaker",
+  "lanCastHint": "Cari speaker DLNA / UPnP di WiFi yang sama",
+  "lanCastNoTrack": "Tidak ada lagu yang diputar",
+  "lanCastScanning": "Mencari…",
+  "lanCastDevices": "{{count}} speaker ditemukan",
+  "lanCastRescan": "Cari ulang",
+  "lanCastNoDevice": "Speaker tidak ditemukan. Pastikan ponsel dan speaker memakai WiFi yang sama dan DLNA aktif di speaker.",
+  "lanCastPlaying": "Diputar di {{name}}",
+  "lanCastLocalHint": "Speaker memutar stream sendiri; ponsel tetap bermain, jeda secara manual bila perlu.",
+  "lanCastStop": "Hentikan kiriman",
+  "lanCastClose": "Tutup"
 } as const;

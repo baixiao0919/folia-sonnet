@@ -7,6 +7,7 @@ import { usePlayerBottomBarBottomPx } from '../../../hooks/usePlayerBottomBarBot
 import { usePlayerOverlayObstacle } from '../../../hooks/usePlayerOverlayLayout';
 import { PANEL_BOTTOM_LIFT_PX } from './panelBottomBaseline';
 import { Button } from '../../ui';
+import LanCastControl from '../../lan-cast/LanCastControl';
 
 // src/components/panelTab/shell/PanelHandle.tsx
 // The round button at the bottom right of the playing page that opens the panel and, white, closes
@@ -324,6 +325,13 @@ const PanelHandle: React.FC<PanelHandleProps> = ({
     }, []);
 
     return (
+        <>
+        {/* 投送按钮共用右下角那颗按钮的隐藏条件与贴底基线，所以两者同时出现、同时消失。 */}
+        <LanCastControl
+            hidden={hideToggleButton || (isOpen && !showOpenPanelCloseButton) || isCommandPaletteOpen}
+            bottom={handleBottom}
+            isDaylight={isDaylight}
+        />
         <AnimatePresence>
             {!hideToggleButton && (!isOpen || showOpenPanelCloseButton) && !isCommandPaletteOpen && (
                 <motion.div
@@ -425,6 +433,7 @@ const PanelHandle: React.FC<PanelHandleProps> = ({
                 </motion.div>
             )}
         </AnimatePresence>
+        </>
     );
 };
 

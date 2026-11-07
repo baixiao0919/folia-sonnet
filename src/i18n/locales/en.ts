@@ -6560,5 +6560,16 @@ export default {
     "body": "This build comes from the {{branch}} branch, not from main or a release/ branch. Features may be missing and data may be wrong — do not use it as your everyday build.",
     "unknownBranch": "an unknown branch",
     "ok": "Got it"
-  }
+  },
+  "lanCastTitle": "Cast to a speaker",
+  "lanCastHint": "Find DLNA / UPnP speakers on this Wi-Fi",
+  "lanCastNoTrack": "Nothing is playing",
+  "lanCastScanning": "Scanning…",
+  "lanCastDevices": "{{count}} speakers found",
+  "lanCastRescan": "Rescan",
+  "lanCastNoDevice": "No speakers found. Make sure the phone and the speaker share the same Wi-Fi and DLNA is enabled on the speaker.",
+  "lanCastPlaying": "Now playing on {{name}}",
+  "lanCastLocalHint": "The speaker streams on its own; the phone keeps playing, so pause it manually if needed.",
+  "lanCastStop": "Stop casting",
+  "lanCastClose": "Close"
 } as const;

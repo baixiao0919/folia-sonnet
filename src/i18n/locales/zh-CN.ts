@@ -6561,5 +6561,16 @@ export default {
     "body": "这个包是从 {{branch}} 分支构建的，不是从 main 或 release/ 分支出的正式版。功能可能不全，数据也可能出问题 —— 别拿它当日常使用的主版本。",
     "unknownBranch": "无法识别的分支",
     "ok": "我知道了"
-  }
+  },
+  "lanCastTitle": "投送到音响",
+  "lanCastHint": "搜索同一 WiFi 下支持 DLNA / UPnP 的音响",
+  "lanCastNoTrack": "当前没有播放的歌曲",
+  "lanCastScanning": "正在搜索…",
+  "lanCastDevices": "找到 {{count}} 台音响",
+  "lanCastRescan": "重新搜索",
+  "lanCastNoDevice": "没搜到音响。请确认手机和音响在同一个 WiFi、且音响已开启 DLNA 投送。",
+  "lanCastPlaying": "已把歌曲交给 {{name}}",
+  "lanCastLocalHint": "音响是独立拉流播放的，手机这边仍在播，可以手动暂停。",
+  "lanCastStop": "停止投送",
+  "lanCastClose": "关闭"
 } as const;
