@@ -6,6 +6,7 @@ import type { MediaId, OmniCollection } from '../../../types/onlineMusic';
 import SearchResultRow from './SearchResultRow';
 import SearchCollectionRow from './SearchCollectionRow';
 import { createSearchBarScrollState, resolveSearchBarScrollState } from './searchBarScroll';
+import { Button } from '../../../components/ui/Button';
 
 // src/components/app/search/SearchResultsList.tsx
 
@@ -58,14 +59,14 @@ const LoadMoreRow = ({ index, style, isLoadingMore, onLoadMore }: {
                 className="flex h-full items-center justify-center"
                 style={{ '--search-row-order': index } as React.CSSProperties}
             >
-                <button
+                <Button
                     type="button"
                     disabled={isLoadingMore}
                     onClick={onLoadMore}
                     className="search-flat-button"
                 >
                     {isLoadingMore ? t('localMusic.searching') : t('home.loadMore')}
-                </button>
+                </Button>
             </div>
         </div>
     );

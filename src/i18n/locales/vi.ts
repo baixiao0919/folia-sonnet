@@ -2354,6 +2354,7 @@ export default {
     "appleMusic": "Apple Music",
     "netease": "NetEase",
     "kugou": "Kugou",
+    "lxmusic": "LX Music",
     "qq": "QQ Music",
     "bodian": "Bodian",
     "ytm": "YT Music",

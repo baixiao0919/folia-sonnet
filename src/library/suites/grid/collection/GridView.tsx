@@ -90,7 +90,6 @@ import {
 } from '../../../core/shared/useLibraryBrowseSessionStore';
 import { useLocalTrackSortStore } from '../../../core/directory/useLocalTrackSortStore';
 import { formatAlbumDuration } from '../../../core/collection/albumDuration';
-
 interface GridViewProps {
     title: string;
     subtitle?: string;
@@ -158,7 +157,6 @@ interface GridViewProps {
      */
     declaredActions?: LibraryDeclaredActions;
 }
-
 const EMPTY_TRACKS: SongResult[] = [];
 // What a page that is given no `items` has for them: the one list, render after render. A list
 // made anew in every render made the grid's items anew, and with them every card on the page.
@@ -213,12 +211,10 @@ const resolveGridViewCardBox = (width: number) => {
         };
     }
 };
-
 const GRID_VIEW_RENDER_BUFFER_FACTOR = 0.75;
 const GRID_VIEW_CARD_VISIBILITY_BUFFER = 96;
 const TRACK_REMOVAL_ANIMATION_MS = 460;
 const TRACK_REMOVAL_BEZIER = [0.22, 0.8, 0.24, 1] as const;
-
 const getLowResCoverUrl = (url: string): string => getSizedCoverUrl(url, 150);
 
 const toHttps = (url?: string): string => {
