@@ -1,9 +1,9 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Folia</string>
-    <string name="title_activity_main">Folia</string>
-    <string name="package_name">top.izuna.foliamajor</string>
-    <string name="custom_url_scheme">top.izuna.foliamajor</string>
+    <string name="app_name">Folia 测试版</string>
+    <string name="title_activity_main">Folia 测试版</string>
+    <string name="package_name">top.izuna.foliamajor.test</string>
+    <string name="custom_url_scheme">top.izuna.foliamajor.test</string>
     <string name="lyrics_wallpaper_description">把正在播放的歌词做成动态壁纸</string>
 
     <!-- 启动时的 WebView 体检（见 WebViewUpgrade）。 -->

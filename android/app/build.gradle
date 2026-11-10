@@ -44,7 +44,7 @@ android {
         version = release(37)
     }
     defaultConfig {
-        applicationId "top.izuna.foliamajor"
+        applicationId "top.izuna.foliamajor.test"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // 测试版（`0.7.25.dev2` 这种）的 code 由 package.json 的 androidVersionCode 显式给出：
