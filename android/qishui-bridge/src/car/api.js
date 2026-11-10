@@ -493,8 +493,9 @@ export function createQishuiCar(options = {}) {
             return { provider: 'qishui', artist, songs, total: page.total, nextOffset: page.nextOffset, hasMore: page.hasMore };
         },
 
-        async feed(limit) {
-            const page = await feed.songs({ count: Math.max(limit, 6) });
+        async feed(limit, scene) {
+            // scene 是场景分类 id（来自 /feed/mode/）；给了就按这个场景拉歌，否则是默认 FM。
+            const page = await feed.songs({ count: Math.max(limit, 6), ...(scene != null ? { scene } : {}) });
             const songs = toFoliaSongs(page.items);
             return { provider: 'qishui', songs, hasMore: Boolean(page.hasMore) };
         },

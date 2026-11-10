@@ -30,6 +30,8 @@ export type QishuiOperation =
     | 'lyric'
     | 'song.url'
     | 'feed'
+    // 场景/心情/风格分类树（车机 /feed/mode/，免登录 client token 可读）；分类下的歌走 feed + scene。
+    | 'feed.modes'
     | 'user.playlists'
     | 'playlist.tracks'
     | 'track.liked'

@@ -11,14 +11,17 @@
 
 import { resolveProxiedUrl } from '../../proxiedUrl';
 import { hasNativeHttp, nativeHttpRequest } from '../../nativeAndroidBridge';
+import { getQishuiTransportAvailability, requestQishui } from '../qishuiTransport';
 
-export type LxPublicPlatform = 'wy' | 'kg' | 'kw' | 'tx';
+export type LxPublicPlatform = 'wy' | 'kg' | 'kw' | 'tx' | 'mg' | 'qs';
 
 export const LX_PUBLIC_PLATFORMS: ReadonlyArray<{ key: LxPublicPlatform; label: string; color: string }> = [
     { key: 'wy', label: '网易云', color: '#dc2626' },
     { key: 'tx', label: 'QQ音乐', color: '#16a34a' },
     { key: 'kg', label: '酷狗', color: '#2563eb' },
     { key: 'kw', label: '酷我', color: '#f59e0b' },
+    { key: 'mg', label: '咪咕音乐', color: '#7c3aed' },
+    { key: 'qs', label: '汽水音乐', color: '#111827' },
 ];
 
 export const LX_PUBLIC_PLATFORM_KEYS: readonly LxPublicPlatform[] = LX_PUBLIC_PLATFORMS.map((p) => p.key);
@@ -851,6 +854,174 @@ const qqMusicu = async (module: string, method: string, param: Raw): Promise<Raw
     return asRecord(await fetchJson(`${QQ_MUSICU}?format=json&data=${data}`, REQUEST_TIMEOUT_MS, QQ_REFERER));
 };
 
+// ---------------------------------------------------------------- 咪咕音乐（App 端公开接口，免登录）
+//
+// 咪咕网页端那套 /v3/api/* 早重定向到 v5、返回的是页面 HTML；能稳定拿到结构化数据的
+// 是 App 端 app.c.nf.migu.cn / app.u.nf.migu.cn（listen1 也走这套）。全部 GET，不需要账号。
+// 封面字段 img1/img2 是 /data/oss/... 相对路径，拼在 d.musicapp.migu.cn 下才是绝对地址。
+
+const MIGU_API = 'https://app.c.nf.migu.cn/MIGUM3.0/v1.0';
+const MIGU_SEARCH = 'https://app.u.nf.migu.cn/pc/resource/song/item/search/v1.0';
+const MIGU_COVER = 'https://d.musicapp.migu.cn';
+const MIGU_REFERER = 'https://music.migu.cn/';
+const MIGU_UA = 'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36';
+
+/** 咪咕封面：`/data/oss/...` 短路径拼 CDN，完整链接原样透传。 */
+const miguCover = (value: unknown): string | undefined => {
+    const raw = toText(value);
+    if (!raw) return undefined;
+    if (/^https?:/i.test(raw) || raw.startsWith('//')) return normalizeCover(raw);
+    return `${MIGU_COVER}${raw.startsWith('/') ? '' : '/'}${raw}`;
+};
+
+const miguSong = (raw: Raw): LxApiSong => {
+    // 搜索接口给 singerList（对象数组），歌单曲目接口给 singer（单个字符串），两种都认。
+    const listArtists = asArray(raw.singerList).map((item) => toText(item.name)).filter(Boolean);
+    const artists = listArtists.length > 0 ? listArtists : [toText(raw.singer)].filter(Boolean);
+    // 封面同理：搜索给 img1/img2 短路径，曲目给 albumImgs[].img 绝对地址。
+    const albumImgs = asArray(raw.albumImgs).map((item) => toText(item.img));
+    return {
+        platform: 'mg',
+        id: toText(pick(raw, 'copyrightId', 'songId', 'contentId')),
+        name: stripTags(pick(raw, 'songName', 'name')),
+        artists: artists.length > 0 ? artists.map((name) => ({ name })) : [{ name: '未知歌手' }],
+        album: {
+            id: toText(raw.albumId),
+            name: toText(raw.album) || '未知专辑',
+            coverUrl: miguCover(pick(raw, ...albumImgs, 'img1')),
+        },
+        coverUrl: miguCover(pick(raw, ...albumImgs, 'img2', 'img1')),
+        durationMs: toNumber(raw.duration) * 1000,
+    };
+};
+
+/** 歌单广场的一张卡：`actionUrl` 里 `id=` 就是歌单 id，`imageUrl` 已是绝对地址。 */
+const miguCollection = (raw: Raw): LxApiCollection => {
+    const actionUrl = toText(pick(raw, 'actionUrl', 'action'));
+    const id = toText(pick(raw, 'contentId'))
+        || (actionUrl.match(/[?&]id=(\d+)/)?.[1] ?? '');
+    return {
+        platform: 'mg',
+        id,
+        name: stripTags(pick(raw, 'title', 'contentName', 'name')),
+        kind: 'playlist',
+        coverUrl: normalizeCover(pick(raw, 'imageUrl', 'imgUrl', 'pic')),
+        creatorName: toText(pick(raw, 'subTitle', 'creatorName')) || undefined,
+        playCount: toNumber(toText(raw.playNum).replace(/[^\d.]/g, '')) * 10000 || undefined,
+    };
+};
+
+const miguChart = (raw: Raw): LxApiChart => ({
+    platform: 'mg',
+    id: toText(pick(raw, 'rankId', 'id', 'contentId')),
+    name: stripTags(pick(raw, 'title', 'rankName', 'name')),
+    coverUrl: normalizeCover(pick(raw, 'imageUrl', 'picUrl', 'coverUrl')),
+});
+
+/** 咪咕 GET：统一带浏览器 UA + Referer，否则 App 端会返 405。 */
+const miguGet = async (url: string): Promise<unknown> => {
+    const response = await httpGetText(url, REQUEST_TIMEOUT_MS, {
+        'User-Agent': MIGU_UA,
+        Referer: MIGU_REFERER,
+        Accept: 'application/json',
+    });
+    if (!response.ok) return null;
+    return parseLooseJson(await response.text());
+};
+
+// ---------------------------------------------------------------- 汽水音乐（走原生桥，免登录部分）
+//
+// 汽水和另外五家不一样：它的数据不在网页公开接口里，而是 folia 自带的汽水桥
+// （car/api.js，经 FoliaQishui 插件进前端）。这里只借用其中免登录就能读的三项：
+// 搜索 search、场景分类树 feed.modes、按场景拉歌 feed（scene）。播放交给用户导入的
+// LX 汽水音源，所以这里只取元数据。桥不可用（网页 / 桌面）时一律返回空，不拖慢界面。
+
+const qishuiReady = (): boolean => getQishuiTransportAvailability().configured === true;
+
+/** 桥返回的歌（toFoliaSongs 形状）→ 洛雪的 LxApiSong。 */
+const qishuiSong = (raw: Raw): LxApiSong => {
+    const artists = asArray(raw.artists).map((item) => toText(item.name)).filter(Boolean);
+    return {
+        platform: 'qs',
+        id: toText(pick(raw, 'id', 'mediaId')),
+        name: stripTags(pick(raw, 'name', 'title')),
+        artists: artists.length > 0 ? artists.map((item) => ({ name: item })) : [{ name: '未知歌手' }],
+        album: {
+            id: toText(raw.album?.id),
+            name: toText(raw.album?.name) || '未知专辑',
+            coverUrl: normalizeCover(raw.album?.coverUrl),
+        },
+        coverUrl: normalizeCover(raw.cover),
+        durationMs: toNumber(raw.durationMs),
+    };
+};
+
+const qishuiSearchSongs = async (keyword: string, limit: number, offset: number): Promise<LxApiPage<LxApiSong>> => {
+    if (!qishuiReady() || !keyword.trim()) return { items: [], hasMore: false };
+    try {
+        const data = asRecord(await requestQishui('search', { keywords: keyword, limit: Math.min(limit, 30), offset }));
+        const songs = asArray(data?.songs).map(qishuiSong).filter((s) => s.id && s.name);
+        return pageOf(songs, limit);
+    } catch (error) {
+        console.warn('[lxmusic] 汽水搜索失败：', error);
+        return { items: [], hasMore: false };
+    }
+};
+
+/** 官方场景分类树（/feed/mode/）→ 洛雪的 LxSquareTagCatalog。 */
+const qishuiTagCatalog = async (): Promise<LxSquareTagCatalog> => {
+    if (!qishuiReady()) return EMPTY_TAG_CATALOG;
+    try {
+        const data = asArray(await requestQishui('feed.modes'));
+        const groups = new Map<string, LxSquareTag[]>();
+        for (const item of data) {
+            const id = toText(item.id);
+            const name = stripTags(item.name);
+            if (!id || !name) continue;
+            const coverUrl = normalizeCover(item.coverUrl);
+            const tag: LxSquareTag = { id, name, ...(coverUrl ? { coverUrl } : {}) };
+            const group = toText(item.group) || '推荐场景';
+            const list = groups.get(group) ?? [];
+            list.push(tag);
+            groups.set(group, list);
+        }
+        return {
+            hot: [],
+            groups: Array.from(groups, ([title, tags]) => ({ title, tags })).filter((g) => g.tags.length > 0),
+        };
+    } catch (error) {
+        console.warn('[lxmusic] 汽水分类树失败：', error);
+        return EMPTY_TAG_CATALOG;
+    }
+};
+
+/**
+ * 汽水「歌单广场」：官方没有可匿名列的歌单广场，用场景分类树本身当卡片（每个场景一张卡），
+ * 点进去按 scene 拉该分类的推荐歌曲。tagId 为空时给一批默认场景；非空当作 scene id，
+ * 此时返回的是歌曲而非歌单——但工作台的歌单页要的是集合，所以用「虚拟歌单」卡片承载：
+ * id = `scene:<sceneId>`，曲目由 lxApiPlaylistTracks 按 scene 解析。
+ */
+const qishuiPlaylistSquare = async (limit: number, _offset: number): Promise<LxApiPage<LxApiCollection>> => {
+    if (!qishuiReady()) return { items: [], hasMore: false };
+    try {
+        const data = asArray(await requestQishui('feed.modes'));
+        const items = data
+            .map((item) => ({
+                platform: 'qs' as const,
+                id: `scene:${toText(item.id)}`,
+                name: stripTags(item.name) || '推荐场景',
+                kind: 'playlist' as const,
+                coverUrl: normalizeCover(item.coverUrl),
+                creatorName: '汽水音乐',
+            }))
+            .filter((item) => item.id && item.name && item.id !== 'scene:');
+        return { items: items.slice(0, limit), hasMore: false };
+    } catch (error) {
+        console.warn('[lxmusic] 汽水场景列表失败：', error);
+        return { items: [], hasMore: false };
+    }
+};
+
 // ---------------------------------------------------------------- 对外接口
 
 export const lxApiSearchSongs = async (
@@ -881,6 +1052,13 @@ export const lxApiSearchSongs = async (
         const songs = asArray(asRecord(asRecord(payload?.data)?.song)?.list).map(qqSong).filter((s) => s.id && s.name);
         return pageOf(songs, limit);
     }
+    if (platform === 'mg') {
+        // 咪咕搜索直接返回歌曲数组；copyrightId 是与音源插件对齐的稳定 id。
+        const list = asArray(await miguGet(`${MIGU_SEARCH}?text=${encodeURIComponent(keyword)}&pageNo=${page}&pageSize=${limit}`));
+        const songs = list.map(miguSong).filter((s) => s.id && s.name);
+        return pageOf(songs, limit);
+    }
+    if (platform === 'qs') return qishuiSearchSongs(keyword, limit, offset);
     const payload = asRecord(await fetchJson(
         `https://search.kuwo.cn/r.s?all=${encodeURIComponent(keyword)}&ft=music&itemset=web_2013&client=kt&pn=${page - 1}&rn=${limit}&rformat=json&encoding=utf8`,
     ));
@@ -916,6 +1094,16 @@ export const lxApiSearchPlaylists = async (
         ));
         const list = asArray(asRecord(asRecord(payload?.data)?.special)?.list).map(qqCollection).filter((c) => c.id && c.name);
         return pageOf(list, limit);
+    }
+    if (platform === 'mg') {
+        // 咪咕的歌单搜索与歌曲搜索同端口，只切 searchSwitch 为 songlist。
+        const switchParam = encodeURIComponent(JSON.stringify({ songlist: 1 }));
+        const list = asArray(await miguGet(
+            `https://app.u.nf.migu.cn/pc/v1.0/content/search_all.do?text=${encodeURIComponent(keyword)}`
+            + `&pageNo=${page}&pageSize=${limit}&searchSwitch=${switchParam}`,
+        ));
+        const items = list.map(miguCollection).filter((c) => c.id && c.name);
+        return pageOf(items, limit);
     }
     return { items: [], hasMore: false };
 };
@@ -1115,6 +1303,44 @@ const kuwoTagCatalog = async (): Promise<LxSquareTagCatalog> => {
 };
 
 /**
+ * 咪咕分类树：taglist 给全部分类（`texts` = [名称, id, url编码名]），hottag 给热门那几个。
+ * 全部分类按咪咕的分组规则没有显式 group，统一塞进「全部」这一组。
+ */
+const miguTagCatalog = async (): Promise<LxSquareTagCatalog> => {
+    const [listPayload, hotPayload] = await Promise.all([
+        miguGet(`${MIGU_API}/template/musiclistplaza-taglist/release?templateVersion=1`).catch(() => null),
+        miguGet(`${MIGU_API}/template/musiclistplaza-hottaglist/release`).catch(() => null),
+    ]);
+    const blocks = asArray(listPayload).flatMap((block) => asArray(block.content));
+    const all = blocks
+        .map((entry) => {
+            const texts = asArray(entry.texts).map((item) => String(item ?? ''));
+            return texts.length >= 2 ? { id: texts[1], name: stripTags(texts[0]) } : null;
+        })
+        .filter((tag): tag is LxSquareTag => Boolean(tag && tag.id && tag.name));
+    const hot = asArray(asRecord(hotPayload)?.contentItemList)
+        .map((item) => ({ id: toText(item.tagId), name: stripTags(item.tagName) }))
+        .filter((tag) => tag.id && tag.name);
+    const hotIds = new Set(hot.map((tag) => tag.id));
+    return {
+        hot,
+        groups: [{ title: '全部风格', tags: all.filter((tag) => !hotIds.has(tag.id)) }].filter((group) => group.tags.length > 0),
+    };
+};
+
+/** 咪咕歌单广场：带 tagId 走分类列表，不带走「最新歌单」模板。 */
+const miguPlaylistSquare = async (limit: number, offset: number, tagId: string): Promise<LxApiPage<LxApiCollection>> => {
+    const page = Math.floor(offset / limit) + 1;
+    const url = tagId
+        ? `${MIGU_API}/template/musiclistplaza-listbytag?pageNumber=${page}&pageSize=${limit}&tagId=${encodeURIComponent(tagId)}`
+        : `${MIGU_API}/template/musiclistplaza-listbytag?pageNumber=${page}&pageSize=${limit}&tagId=1000001672`;
+    const payload = asRecord(await miguGet(url));
+    const content = asRecord(payload?.data)?.contentItemList;
+    const items = asArray(asRecord(content)?.itemList).map(miguCollection).filter((c) => c.id && c.name);
+    return { items: items.slice(0, limit), hasMore: items.length >= limit };
+};
+
+/**
  * 拉某一家歌单广场的二级分类目录。失败只返回空目录，不抛：调用方据此决定要不要显示那一行。
  */
 export const lxApiPlaylistTags = async (platform: LxPublicPlatform): Promise<LxSquareTagCatalog> => {
@@ -1122,6 +1348,8 @@ export const lxApiPlaylistTags = async (platform: LxPublicPlatform): Promise<LxS
         if (platform === 'wy') return await neteaseTagCatalog();
         if (platform === 'tx') return await qqTagCatalog();
         if (platform === 'kg') return await kugouTagCatalog();
+        if (platform === 'mg') return await miguTagCatalog();
+        if (platform === 'qs') return await qishuiTagCatalog();
         return await kuwoTagCatalog();
     } catch (error) {
         console.warn('[lxmusic] 拉分类标签失败：', platform, error);
@@ -1193,6 +1421,11 @@ export const lxApiPlaylistSquare = async (
         const list = asArray(asRecord(payload?.data)?.data).map(kuwoCollection).filter((c) => c.id && c.name);
         return { items: list, hasMore: list.length >= limit };
     }
+    if (platform === 'mg' || platform === 'qs') {
+        return platform === 'mg'
+            ? miguPlaylistSquare(limit, offset, tagId)
+            : qishuiPlaylistSquare(limit, offset);
+    }
     {
         // QQ：categoryId=10000000 是「全部」；带标签时换成目录接口给的 categoryId。
         // 5 是推荐/最热，2 是另一批（当「最新」用）——两个都实测换内容。
@@ -1228,6 +1461,9 @@ export const lxApiCharts = async (platform: LxPublicPlatform): Promise<LxApiChar
         // 榜名和榜图都从官方目录一次取回，比手抄的固定表更不会跑偏；取不到才退回固定表。
         return withNeteaseChartCovers(NETEASE_CHARTS.map((chart) => ({ platform, id: chart.id, name: chart.name })));
     }
+    // 咪咕的榜单位于 App 端模板里（rankId 藏在埋点参数里）、汽水没有公开榜单；
+    // 这两家不卖榜单，返回空让工作台提示「换一家」，比错挂酷我榜单更诚实。
+    if (platform === 'mg' || platform === 'qs') return [];
     return withKuwoChartCovers(KUWO_CHARTS.map((chart) => ({ platform, id: chart.id, name: chart.name })));
 };
 
@@ -1309,6 +1545,31 @@ export const lxApiPlaylistTracks = async (
         const cdlist = asArray(asRecord(payload?.data)?.cdlist);
         const all = asArray(cdlist[0]?.songlist).map(qqSong).filter((s) => s.id && s.name);
         return { items: all.slice(offset, offset + limit), hasMore: all.length > offset + limit };
+    }
+    if (platform === 'mg') {
+        const payload = asRecord(await miguGet(
+            'https://app.c.nf.migu.cn/MIGUM2.0/v1.0/user/queryMusicListSongs.do'
+            + `?musicListId=${encodeURIComponent(playlistId)}&pageNo=${page}&pageSize=${limit}`,
+        ));
+        const songs = asArray(payload?.list).map(miguSong).filter((s) => s.id && s.name);
+        const total = toNumber(payload?.totalCount);
+        return { items: songs, hasMore: offset + songs.length < total };
+    }
+    if (platform === 'qs') {
+        // scene 虚拟歌单：`scene:<id>` → 按场景拉推荐歌曲。
+        const scene = playlistId.startsWith('scene:') ? playlistId.slice(6) : '';
+        if (!qishuiReady()) return { items: [], hasMore: false };
+        try {
+            const data = asRecord(await requestQishui('feed', {
+                limit: Math.min(limit, 30),
+                ...(scene ? { scene } : {}),
+            }));
+            const songs = asArray(data?.songs).map(qishuiSong).filter((s) => s.id && s.name);
+            return { items: songs.slice(offset, offset + limit), hasMore: Boolean(data?.hasMore) };
+        } catch (error) {
+            console.warn('[lxmusic] 汽水场景曲目失败：', error);
+            return { items: [], hasMore: false };
+        }
     }
     return { items: [], hasMore: false };
 };
@@ -1606,6 +1867,23 @@ export const lxApiSongById = async (
             if (!raw) return null;
             const song = qqSong(raw);
             return song.name ? song : null;
+        }
+        if (platform === 'mg') {
+            // 咪咕「按 id 反查单曲」的公开接口给的是版权资源信息，字段与搜索一致。
+            const payload = asRecord(await miguGet(
+                'https://app.c.nf.migu.cn/MIGUM2.0/v1.0/content/resourceinfo.do'
+                + `?needSimple=00&resourceType=2&resourceId=${encodeURIComponent(songId)}`,
+            ));
+            const raw = asRecord(payload?.resource);
+            if (!raw) return null;
+            const song = miguSong(raw);
+            return song.name ? song : null;
+        }
+        if (platform === 'qs') {
+            if (!qishuiReady()) return null;
+            const data = asRecord(await requestQishui('song.detail', { id: songId }));
+            const song = data?.song ? qishuiSong(asRecord(data.song) ?? {}) : null;
+            return song && song.name ? song : null;
         }
         return null;
     } catch {
