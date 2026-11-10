@@ -13,7 +13,6 @@ import { resolveProxiedUrl } from '../../proxiedUrl';
 import { hasNativeHttp, nativeHttpRequest } from '../../nativeAndroidBridge';
 import { getQishuiTransportAvailability, requestQishui } from '../qishuiTransport';
 import { qishuiImage } from '../qishui/qishuiNormalize';
-import { createQishuiSceneCover } from '../qishui/qishuiSceneCover';
 
 export type LxPublicPlatform = 'wy' | 'kg' | 'kw' | 'tx' | 'mg' | 'qs';
 
@@ -914,14 +913,19 @@ const miguSong = (raw: Raw): LxApiSong => {
 /** 歌单广场的一张卡：`actionUrl` 里 `id=` 就是歌单 id，`imageUrl` 已是绝对地址。 */
 const miguCollection = (raw: Raw): LxApiCollection => {
     const actionUrl = toText(pick(raw, 'actionUrl', 'action'));
+    // 歌单广场推荐页的卡片走另一套字段：text/img/logEvent.contentId。
+    // 两个都认，否则「全部」那一屏只会有本机「我的喜欢」一张卡。
+    const logEvent = asRecord(raw.logEvent) ?? {};
+    const logName = toText(logEvent.contentName);
     const id = toText(pick(raw, 'contentId'))
+        || toText(pick(logEvent, 'contentId'))
         || (actionUrl.match(/[?&]id=(\d+)/)?.[1] ?? '');
     return {
         platform: 'mg',
         id,
-        name: stripTags(pick(raw, 'title', 'contentName', 'name')),
+        name: stripTags(pick(raw, 'title', 'txt', 'contentName', 'name') || logName),
         kind: 'playlist',
-        coverUrl: normalizeCover(pick(raw, 'imageUrl', 'imgUrl', 'pic')),
+        coverUrl: normalizeCover(pick(raw, 'imageUrl', 'img', 'imgUrl', 'pic')),
         creatorName: toText(pick(raw, 'subTitle', 'creatorName')) || undefined,
         playCount: toNumber(toText(raw.playNum).replace(/[^\d.]/g, '')) * 10000 || undefined,
     };
@@ -976,6 +980,26 @@ const miguGet = async (url: string): Promise<unknown> => {
     return parseLooseJson(await response.text());
 };
 
+/**
+ * 咪咕榜单目录以官方排行榜首页为准：榜名、rankId、封面都在同一条响应里，
+ * 不会再出现「封面是 A 榜、标题写 B 榜」。写死的洛雪榜表只作接口失败时的兜底。
+ */
+const miguLiveCharts = async (): Promise<LxApiChart[]> => {
+    const payload = asRecord(await miguGet('https://app.c.nf.migu.cn/pc/bmw/rank/rank-index/v1.0').catch(() => null));
+    const charts = asArray(asRecord(payload?.data)?.contents)
+        .flatMap((block) => asArray(asRecord(block)?.contents))
+        .map(miguChart)
+        .filter((chart) => chart.id && chart.name);
+    if (charts.length > 0) {
+        // 同一条响应也填进榜图缓存，withMiguChartCovers 的兜底路径不会再用旧榜名。
+        miguChartCoverCache = {
+            at: Date.now(),
+            covers: new Map(charts.filter((chart) => chart.coverUrl).map((chart) => [chart.id, chart.coverUrl!])),
+        };
+    }
+    return charts;
+};
+
 // ---------------------------------------------------------------- 汽水音乐（走原生桥，免登录部分）
 //
 // 汽水和另外五家不一样：它的数据不在网页公开接口里，而是 folia 自带的汽水桥
@@ -1017,19 +1041,13 @@ const qishuiSearchSongs = async (keyword: string, limit: number, offset: number)
 
 /**
  * 汽水的封面字段是 `url_info` 对象（{urls, uri, template_prefix}），不是字符串 URL。
- * 早先直接 normalizeCover 会把它变成 "[object Object]"，卡面自然没图；这里统一走
- * 渲染层已有的解码 + 内嵌：能读到字节就把真图嵌进 SVG，读不到至少留一张有辨识度的底图。
+ * 先解成 https 原图再直接交给 <img>：模式探索的原图常有 1～2MB，旧的「抓字节内嵌进 SVG」
+ * 被 512KB 上限挡掉后只剩渐变底，封面就跟标题对不上了。公开 CDN 的图不需要 CORS，
+ * 直接给地址既保真又不占内存；取不到才是 undefined，由调用方画兜底。
  */
-const qishuiCover = async (id: string, raw: unknown): Promise<string | undefined> => {
-    const url = qishuiImage(raw);
-    if (!url) return undefined;
-    try {
-        return await createQishuiSceneCover(id, url);
-    } catch (error) {
-        console.warn('[lxmusic] 汽水封面解码失败：', error);
-        return undefined;
-    }
-};
+const qishuiCover = async (_id: string, raw: unknown): Promise<string | undefined> => (
+    normalizeCover(qishuiImage(raw))
+);
 
 /** 官方场景分类树（/feed/mode/）→ 洛雪的 LxSquareTagCatalog。 */
 const qishuiTagCatalog = async (): Promise<LxSquareTagCatalog> => {
@@ -1454,11 +1472,24 @@ const miguPlaylistSquare = async (limit: number, offset: number, tagId: string):
         ? `https://app.c.nf.migu.cn/pc/v1.0/template/musiclistplaza-listbytag/release?pageNumber=${page}&templateVersion=2&tagId=${encodeURIComponent(tagId)}`
         : `https://app.c.nf.migu.cn/pc/bmw/page-data/playlist-square-recommend/v1.0?templateVersion=2&pageNo=${page}`;
     const payload = asRecord(await miguGet(url));
-    // contentItemList 是「块」数组（首块常常是空白间距），歌单卡在每个块的 itemList 里。
-    const items = asArray(asRecord(payload?.data)?.contentItemList)
-        .flatMap((block) => asArray(block.itemList))
-        .map(miguCollection)
-        .filter((c) => c.id && c.name);
+    // 两条接口两套嵌套：按标签是 contentItemList[].itemList[]，
+    // 「全部」那一条是 data.contents[].contents[] 的任意深度块树，卡片在叶子上。
+    // 只认第一种时「全部」会返回空，整屏就只剩本机「我的喜欢」。
+    const collect = (node: Raw): Raw[] => {
+        const entry = asRecord(node) ?? {};
+        const nested = [...asArray(entry.itemList), ...asArray(entry.contents)];
+        const children = nested.flatMap(collect);
+        const isCard = Boolean(
+            toText(pick(entry, 'contentId'))
+            || toText(pick(asRecord(entry.logEvent) ?? {}, 'contentId'))
+            || /[?&]id=\d+/.test(toText(pick(entry, 'actionUrl', 'action'))),
+        );
+        return isCard ? [entry, ...children] : children;
+    };
+    const blocks = tagId
+        ? asArray(asRecord(payload?.data)?.contentItemList).flatMap((block) => asArray(asRecord(block)?.itemList))
+        : asArray(asRecord(payload?.data)?.contents).flatMap(collect);
+    const items = blocks.map(miguCollection).filter((c) => c.id && c.name);
     return { items: items.slice(0, limit), hasMore: items.length >= limit };
 };
 
@@ -1584,8 +1615,10 @@ export const lxApiCharts = async (platform: LxPublicPlatform): Promise<LxApiChar
         return withNeteaseChartCovers(NETEASE_CHARTS.map((chart) => ({ platform, id: chart.id, name: chart.name })));
     }
     if (platform === 'mg') {
-        // 洛雪官方 APP 的十张咪咕榜（榜名和 rankId 都跟它逐字对齐）。榜图从咪咕
-        // 排行榜首页拿；接口抽风时 LxChartBoard 会按榜名画渐变底，不会开天窗。
+        // 榜名和封面都从官方排行榜首页原样取，保证「图上写着哪个榜，点开就是哪个榜」。
+        // 固定表只在官方接口抽风时兜底，避免整屏空白。
+        const live = await miguLiveCharts();
+        if (live.length > 0) return live;
         return withMiguChartCovers(MIGU_CHARTS.map((chart) => ({ platform, id: chart.id, name: chart.name })));
     }
     if (platform === 'qs') {
