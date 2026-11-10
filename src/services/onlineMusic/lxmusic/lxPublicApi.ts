@@ -1403,6 +1403,30 @@ const kuwoTagCatalog = async (): Promise<LxSquareTagCatalog> => {
  * 「风格 / 语种 / 场景 / 主题 / 心情」那些分组名，block.content[].texts = [名称, id]。
  * 标签 id 直接就是 listbytag 的 tagId，不需要再映射。
  */
+/**
+ * 洛雪官方咪咕标签表的固化快照（2026-11 从 pc/v1.0 taglist 原样导出，分组与 id 一一对应）。
+ * 安卓真机上这条接口偶尔经原生桥取不到（header / 解析的边界情况），而歌单页一旦空手
+ * 就整屏没有目录，跟网易云那些「一点就有一整片标签」的体验差一大截。兜底表保证
+ * 无论接口在不在，咪咕都有一份和洛雪官方一模一样的标签树可用。tagId 直接是
+ * listbytag 的分类参数，和接口返回值等价，点下去照样能取到对应歌单。
+ */
+const MIGU_TAG_SNAPSHOT: LxSquareTagCatalog = (() => {
+    const tags = (raw: string): LxSquareTag[] => raw.trim().split(/\s+/).map((pair) => {
+        const [name, id] = pair.split('|');
+        return { id, name };
+    }).filter((tag) => tag.id && tag.name);
+    return {
+        hot: tags('网络热歌|1001076096 流行|1000001672 经典老歌|1000001635 官方|1003449976 国风|1000001675 民谣|1000001775 KTV金曲|1000001827 欧美|1000001777 儿歌|1000001780 厂牌|1003449727 伤感|1000001795 电影|1001076080 怀旧|1000001696 翻唱|1000001831'),
+        groups: [
+            { title: '风格', tags: tags('流行|1000001672 电子|1000001682 国风|1000001675 爵士|1000001681 乡村|1000001683 蓝调|1000001851 民谣|1000001775 纯音乐|1000001807 古典|1000001783 摇滚|1000001674 嘻哈|1000001809 R&B|1000001808') },
+            { title: '语种', tags: tags('国语|1000001762 粤语|1000001763 英语|1000001766 日语|1000001767 韩语|1000001599 小语种|1003449724') },
+            { title: '场景', tags: tags('运动|1003449209 瑜伽|1000587692 学习|1003450093 睡前安眠|1000587688 驾车|1000093923 旅行|1000001749 夜店|1000587686 派对|1002600606 下午茶|1003449723 读书|1003449726') },
+            { title: '主题', tags: tags('综艺|1001076083 KTV金曲|1000001827 爱情|1000001698 经典老歌|1000001635 网络热歌|1001076096 儿歌|1000001780 70后|1000587717 80后|1000587718 90后|1000587726 广场舞|1000587702 红歌|1000001670 游戏|1000587698 国风|1000001675 安静|1000001796 青春校园|1000587712 小清新|1000587673 DJ舞曲|1000093902 电视剧|1001076078 电影|1001076080 翻唱|1000001831') },
+            { title: '心情', tags: tags('幸福|1000587677 治愈|1000587710 思念|1000001703 励志|1000001700 欢快|1000001694 叛逆|1002600588 宣泄|1002600585 怀旧|1000001696 减压|1000587679 寂寞|1000001699 忧郁|1002600579 伤感|1000001795 安静|1000001796') },
+        ],
+    };
+})();
+
 const miguTagCatalog = async (): Promise<LxSquareTagCatalog> => {
     const payload = asRecord(await miguGet(
         'https://app.c.nf.migu.cn/pc/v1.0/template/musiclistplaza-taglist/release',
@@ -1419,7 +1443,8 @@ const miguTagCatalog = async (): Promise<LxSquareTagCatalog> => {
         title: stripTags(block.header?.title),
         tags: asArray(block.content).map(tagOf).filter((tag): tag is LxSquareTag => Boolean(tag)),
     })).filter((group) => group.title && group.tags.length > 0);
-    return { hot, groups };
+    // 真机取不到 / 解析出空树时，用洛雪官方固化表顶上，保证歌单页一定有目录。
+    return hot.length > 0 && groups.length > 0 ? { hot, groups } : MIGU_TAG_SNAPSHOT;
 };
 
 /** 咪咕歌单广场：带 tagId 走官方按标签列表，不带走「推荐歌单」模板。 */
@@ -1880,9 +1905,23 @@ const kugouFreeAudioUrl = async (hash: string): Promise<string | null> => {
     }
 };
 
-/** 酷我 / 酷狗有免费直链（其余靠音源续）。返回 null 表示这次没取到，交给音源。 */
+/** 酷我 / 酷狗 / 汽水有免费直链（其余靠音源续）。返回 null 表示这次没取到，交给音源。 */
 export const lxApiFreeAudioUrl = async (platform: LxPublicPlatform, songId: string): Promise<string | null> => {
     if (platform === 'kg') return kugouFreeAudioUrl(songId);
+    if (platform === 'qs') {
+        // 洛雪里的汽水歌和「汽水音乐」那家是同一批 id，桥里的 song.url 能直接换出
+        // 播放地址。用户导入的 LX 音源普遍还没支持汽水这个新平台，音源那一路大概率
+        // 交不出地址，所以在兜底这一档把桥接进来 —— 到这里才调用，不影响音源优先。
+        if (!qishuiReady()) return null;
+        try {
+            const data = asRecord(await requestQishui('song.url', { id: songId, quality: 'standard' }));
+            if (data?.trial === true) return null; // 试听段不当整曲
+            const url = toText(pick(data, 'url', 'audioUrl'));
+            return /^https?:\/\//i.test(url) ? url : null;
+        } catch {
+            return null;
+        }
+    }
     if (platform === 'wy') {
         /**
          * 网易云的免登录外链：免费曲目会直接 302 到 CDN，付费/下架的曲目回一段 HTML。
