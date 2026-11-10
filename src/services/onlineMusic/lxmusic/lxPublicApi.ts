@@ -12,6 +12,8 @@
 import { resolveProxiedUrl } from '../../proxiedUrl';
 import { hasNativeHttp, nativeHttpRequest } from '../../nativeAndroidBridge';
 import { getQishuiTransportAvailability, requestQishui } from '../qishuiTransport';
+import { qishuiImage } from '../qishui/qishuiNormalize';
+import { createQishuiSceneCover } from '../qishui/qishuiSceneCover';
 
 export type LxPublicPlatform = 'wy' | 'kg' | 'kw' | 'tx' | 'mg' | 'qs';
 
@@ -866,6 +868,20 @@ const MIGU_COVER = 'https://d.musicapp.migu.cn';
 const MIGU_REFERER = 'https://music.migu.cn/';
 const MIGU_UA = 'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36';
 
+/** 洛雪官方 APP 里咪咕那十张榜：名字和 rankId 一一对应（见 lx-music-mobile/mg/leaderboard.js）。 */
+const MIGU_CHARTS: ReadonlyArray<{ id: string; name: string }> = [
+    { id: '27553319', name: '新歌榜' },
+    { id: '27186466', name: '热歌榜' },
+    { id: '27553408', name: '原创榜' },
+    { id: '75959118', name: '音乐风向榜' },
+    { id: '76557036', name: '彩铃分贝榜' },
+    { id: '76557745', name: '会员臻爱榜' },
+    { id: '23189800', name: '港台榜' },
+    { id: '23189399', name: '内地榜' },
+    { id: '19190036', name: '欧美榜' },
+    { id: '83176390', name: '国风金曲榜' },
+];
+
 /** 咪咕封面：`/data/oss/...` 短路径拼 CDN，完整链接原样透传。 */
 const miguCover = (value: unknown): string | undefined => {
     const raw = toText(value);
@@ -918,6 +934,37 @@ const miguChart = (raw: Raw): LxApiChart => ({
     coverUrl: normalizeCover(pick(raw, 'imageUrl', 'picUrl', 'coverUrl')),
 });
 
+/**
+ * 咪咕榜图只在排行榜首页给（rankId → imageUrl），固定榜表本身没有封面。
+ * 缓存一次十分钟：切平台来回走不该每次都拉一遍榜首页。
+ */
+let miguChartCoverCache: { at: number; covers: Map<string, string> } | null = null;
+const withMiguChartCovers = async (charts: LxApiChart[]): Promise<LxApiChart[]> => {
+    if (!miguChartCoverCache || Date.now() - miguChartCoverCache.at > 10 * 60_000) {
+        const covers = new Map<string, string>();
+        try {
+            const payload = asRecord(await miguGet(
+                'https://app.c.nf.migu.cn/pc/bmw/rank/rank-index/v1.0',
+            ).catch(() => null));
+            const blocks = asArray(asRecord(payload?.data)?.contents);
+            for (const block of blocks) {
+                for (const entry of [...asArray(block.contents), ...asArray(block.itemList)]) {
+                    const cover = normalizeCover(pick(entry, 'imageUrl', 'picUrl', 'coverUrl'));
+                    const id = toText(pick(entry, 'rankId', 'id', 'contentId'));
+                    if (id && cover) covers.set(id, cover);
+                }
+            }
+        } catch (error) {
+            console.warn('[lxmusic] 咪咕榜图失败：', error);
+        }
+        miguChartCoverCache = { at: Date.now(), covers };
+    }
+    return charts.map((chart) => ({
+        ...chart,
+        coverUrl: chart.coverUrl ?? miguChartCoverCache?.covers.get(chart.id),
+    }));
+};
+
 /** 咪咕 GET：统一带浏览器 UA + Referer，否则 App 端会返 405。 */
 const miguGet = async (url: string): Promise<unknown> => {
     const response = await httpGetText(url, REQUEST_TIMEOUT_MS, {
@@ -968,6 +1015,22 @@ const qishuiSearchSongs = async (keyword: string, limit: number, offset: number)
     }
 };
 
+/**
+ * 汽水的封面字段是 `url_info` 对象（{urls, uri, template_prefix}），不是字符串 URL。
+ * 早先直接 normalizeCover 会把它变成 "[object Object]"，卡面自然没图；这里统一走
+ * 渲染层已有的解码 + 内嵌：能读到字节就把真图嵌进 SVG，读不到至少留一张有辨识度的底图。
+ */
+const qishuiCover = async (id: string, raw: unknown): Promise<string | undefined> => {
+    const url = qishuiImage(raw);
+    if (!url) return undefined;
+    try {
+        return await createQishuiSceneCover(id, url);
+    } catch (error) {
+        console.warn('[lxmusic] 汽水封面解码失败：', error);
+        return undefined;
+    }
+};
+
 /** 官方场景分类树（/feed/mode/）→ 洛雪的 LxSquareTagCatalog。 */
 const qishuiTagCatalog = async (): Promise<LxSquareTagCatalog> => {
     if (!qishuiReady()) return EMPTY_TAG_CATALOG;
@@ -978,7 +1041,7 @@ const qishuiTagCatalog = async (): Promise<LxSquareTagCatalog> => {
             const id = toText(item.id);
             const name = stripTags(item.name);
             if (!id || !name) continue;
-            const coverUrl = normalizeCover(item.coverUrl);
+            const coverUrl = await qishuiCover(id, item.coverUrl);
             const tag: LxSquareTag = { id, name, ...(coverUrl ? { coverUrl } : {}) };
             const group = toText(item.group) || '推荐场景';
             const list = groups.get(group) ?? [];
@@ -1005,20 +1068,50 @@ const qishuiPlaylistSquare = async (limit: number, _offset: number): Promise<LxA
     if (!qishuiReady()) return { items: [], hasMore: false };
     try {
         const data = asArray(await requestQishui('feed.modes'));
-        const items = data
-            .map((item) => ({
+        const items = await Promise.all(data.map(async (item) => {
+            const id = toText(item.id);
+            return {
                 platform: 'qs' as const,
-                id: `scene:${toText(item.id)}`,
+                id: `scene:${id}`,
                 name: stripTags(item.name) || '推荐场景',
                 kind: 'playlist' as const,
-                coverUrl: normalizeCover(item.coverUrl),
+                coverUrl: await qishuiCover(id, item.coverUrl),
+                description: toText(item.group) || undefined,
                 creatorName: '汽水音乐',
-            }))
-            .filter((item) => item.id && item.name && item.id !== 'scene:');
-        return { items: items.slice(0, limit), hasMore: false };
+            };
+        }));
+        return {
+            items: items.filter((item) => item.id && item.name && item.id !== 'scene:').slice(0, limit),
+            hasMore: false,
+        };
     } catch (error) {
         console.warn('[lxmusic] 汽水场景列表失败：', error);
         return { items: [], hasMore: false };
+    }
+};
+
+/**
+ * 汽水「发现 → 模式探索」的卡片流。上游每次请求都会给一批新的 radio 卡，
+ * 这里不做长期缓存（LxChartBoard 那层十分钟缓存会挡住「每次都不同」，见该文件）。
+ * id 用 `radio:<上游 id>`，跟场景歌单的 `scene:<id>` 区分开。
+ */
+const qishuiDiscoverCharts = async (): Promise<LxApiChart[]> => {
+    if (!qishuiReady()) return [];
+    try {
+        const data = asArray(await requestQishui('discover.modes'));
+        return await Promise.all(data.map(async (item) => {
+            const id = `radio:${toText(item.id)}`;
+            return {
+                platform: 'qs' as const,
+                id,
+                name: stripTags(item.name) || '模式探索',
+                coverUrl: await qishuiCover(id, item.cover),
+                description: stripTags(item.description) || undefined,
+            };
+        }));
+    } catch (error) {
+        console.warn('[lxmusic] 汽水模式探索失败：', error);
+        return [];
     }
 };
 
@@ -1303,40 +1396,44 @@ const kuwoTagCatalog = async (): Promise<LxSquareTagCatalog> => {
 };
 
 /**
- * 咪咕分类树：taglist 给全部分类（`texts` = [名称, id, url编码名]），hottag 给热门那几个。
- * 全部分类按咪咕的分组规则没有显式 group，统一塞进「全部」这一组。
+ * 咪咕分类树：走洛雪官方那套 `pc/v1.0/template/musiclistplaza-taglist/release`。
+ *
+ * 之前用的 MIGUM3.0 版本返回的是另一套结构，热门和分组全挤在一起；pc/v1.0 的
+ * `data` 是一串 block：第 0 块 header=热门，后面每块的 header.title 就是洛雪界面上
+ * 「风格 / 语种 / 场景 / 主题 / 心情」那些分组名，block.content[].texts = [名称, id]。
+ * 标签 id 直接就是 listbytag 的 tagId，不需要再映射。
  */
 const miguTagCatalog = async (): Promise<LxSquareTagCatalog> => {
-    const [listPayload, hotPayload] = await Promise.all([
-        miguGet(`${MIGU_API}/template/musiclistplaza-taglist/release?templateVersion=1`).catch(() => null),
-        miguGet(`${MIGU_API}/template/musiclistplaza-hottaglist/release`).catch(() => null),
-    ]);
-    const blocks = asArray(listPayload).flatMap((block) => asArray(block.content));
-    const all = blocks
-        .map((entry) => {
-            const texts = asArray(entry.texts).map((item) => String(item ?? ''));
-            return texts.length >= 2 ? { id: texts[1], name: stripTags(texts[0]) } : null;
-        })
-        .filter((tag): tag is LxSquareTag => Boolean(tag && tag.id && tag.name));
-    const hot = asArray(asRecord(hotPayload)?.contentItemList)
-        .map((item) => ({ id: toText(item.tagId), name: stripTags(item.tagName) }))
-        .filter((tag) => tag.id && tag.name);
-    const hotIds = new Set(hot.map((tag) => tag.id));
-    return {
-        hot,
-        groups: [{ title: '全部风格', tags: all.filter((tag) => !hotIds.has(tag.id)) }].filter((group) => group.tags.length > 0),
+    const payload = asRecord(await miguGet(
+        'https://app.c.nf.migu.cn/pc/v1.0/template/musiclistplaza-taglist/release',
+    ).catch(() => null));
+    const blocks = asArray(payload?.data);
+    const tagOf = (entry: Raw): LxSquareTag | null => {
+        const texts = asArray(entry.texts).map((item) => String(item ?? ''));
+        return texts.length >= 2 && texts[1] && stripTags(texts[0])
+            ? { id: texts[1], name: stripTags(texts[0]) }
+            : null;
     };
+    const hot = asArray(blocks[0]?.content).map(tagOf).filter((tag): tag is LxSquareTag => Boolean(tag));
+    const groups = blocks.slice(1).map((block) => ({
+        title: stripTags(block.header?.title),
+        tags: asArray(block.content).map(tagOf).filter((tag): tag is LxSquareTag => Boolean(tag)),
+    })).filter((group) => group.title && group.tags.length > 0);
+    return { hot, groups };
 };
 
-/** 咪咕歌单广场：带 tagId 走分类列表，不带走「最新歌单」模板。 */
+/** 咪咕歌单广场：带 tagId 走官方按标签列表，不带走「推荐歌单」模板。 */
 const miguPlaylistSquare = async (limit: number, offset: number, tagId: string): Promise<LxApiPage<LxApiCollection>> => {
     const page = Math.floor(offset / limit) + 1;
     const url = tagId
-        ? `${MIGU_API}/template/musiclistplaza-listbytag?pageNumber=${page}&pageSize=${limit}&tagId=${encodeURIComponent(tagId)}`
-        : `${MIGU_API}/template/musiclistplaza-listbytag?pageNumber=${page}&pageSize=${limit}&tagId=1000001672`;
+        ? `https://app.c.nf.migu.cn/pc/v1.0/template/musiclistplaza-listbytag/release?pageNumber=${page}&templateVersion=2&tagId=${encodeURIComponent(tagId)}`
+        : `https://app.c.nf.migu.cn/pc/bmw/page-data/playlist-square-recommend/v1.0?templateVersion=2&pageNo=${page}`;
     const payload = asRecord(await miguGet(url));
-    const content = asRecord(payload?.data)?.contentItemList;
-    const items = asArray(asRecord(content)?.itemList).map(miguCollection).filter((c) => c.id && c.name);
+    // contentItemList 是「块」数组（首块常常是空白间距），歌单卡在每个块的 itemList 里。
+    const items = asArray(asRecord(payload?.data)?.contentItemList)
+        .flatMap((block) => asArray(block.itemList))
+        .map(miguCollection)
+        .filter((c) => c.id && c.name);
     return { items: items.slice(0, limit), hasMore: items.length >= limit };
 };
 
@@ -1461,9 +1558,16 @@ export const lxApiCharts = async (platform: LxPublicPlatform): Promise<LxApiChar
         // 榜名和榜图都从官方目录一次取回，比手抄的固定表更不会跑偏；取不到才退回固定表。
         return withNeteaseChartCovers(NETEASE_CHARTS.map((chart) => ({ platform, id: chart.id, name: chart.name })));
     }
-    // 咪咕的榜单位于 App 端模板里（rankId 藏在埋点参数里）、汽水没有公开榜单；
-    // 这两家不卖榜单，返回空让工作台提示「换一家」，比错挂酷我榜单更诚实。
-    if (platform === 'mg' || platform === 'qs') return [];
+    if (platform === 'mg') {
+        // 洛雪官方 APP 的十张咪咕榜（榜名和 rankId 都跟它逐字对齐）。榜图从咪咕
+        // 排行榜首页拿；接口抽风时 LxChartBoard 会按榜名画渐变底，不会开天窗。
+        return withMiguChartCovers(MIGU_CHARTS.map((chart) => ({ platform, id: chart.id, name: chart.name })));
+    }
+    if (platform === 'qs') {
+        // 汽水没有「榜单」这种东西，手机端发现页的「模式探索」才是它的推荐入口：
+        // 每次打开都是新的一批卡（title + desc + 封面），点开就是一路电台。
+        return qishuiDiscoverCharts();
+    }
     return withKuwoChartCovers(KUWO_CHARTS.map((chart) => ({ platform, id: chart.id, name: chart.name })));
 };
 
@@ -1496,6 +1600,28 @@ export const lxApiChartTracks = async (
             .map(qqSong)
             .filter((song) => song.id && song.name);
         return { items: songs, hasMore: songs.length >= limit };
+    }
+    if (platform === 'mg') {
+        // 榜单曲目就是咪咕 columnId 详情，和洛雪官方 getList(bangid) 用的是同一个接口。
+        const payload = asRecord(await miguGet(
+            `https://app.c.nf.migu.cn/MIGUM2.0/v1.0/content/querycontentbyId.do?columnId=${encodeURIComponent(chartId)}&needAll=0`,
+        ));
+        const songs = asArray(asRecord(payload?.columnInfo)?.contents)
+            .map((item) => asRecord(item.objectInfo))
+            .filter((data): data is Raw => Boolean(data))
+            .map(miguSong)
+            .filter((song) => song.id && song.name);
+        return pageOf(songs, limit);
+    }
+    if (platform === 'qs' && chartId.startsWith('radio:')) {
+        // 模式探索卡点开：id 就是上游 radio queue id，曲目走公开的 /luna/feed/radio/tracks。
+        const data = asRecord(await requestQishui('discover.tracks', {
+            id: chartId.slice('radio:'.length),
+            limit,
+            offset,
+        }));
+        const songs = asArray(data?.songs).map(qishuiSong).filter((song) => song.id && song.name);
+        return { items: songs, hasMore: Boolean(data?.hasMore) && songs.length > 0 };
     }
     const payload = asRecord(await fetchJson(
         `https://kbangserver.kuwo.cn/ksong.s?from=pc&fmt=json&pn=${page - 1}&rn=${limit}&type=bang&data=content&id=${encodeURIComponent(chartId)}&show_copyright_off=1`,

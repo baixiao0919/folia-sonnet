@@ -9,6 +9,7 @@ import { createClient, QishuiError } from './client.js';
 import { createAuth, createSessions } from './auth.js';
 import { createCatalog, likedPlaylist } from './catalog.js';
 import { createFeed } from './feed.js';
+import { createDiscover } from './discover.js';
 import { createLibrary } from './library.js';
 import { resolveAudio } from './playback.js';
 import { createFetch } from './transport.js';
@@ -34,6 +35,7 @@ export function createQishuiCar(options = {}) {
     const auth = createAuth(client, { log });
     const catalog = createCatalog(client);
     const feed = createFeed(client);
+    const discover = createDiscover({ client });
     const library = createLibrary(client);
     const { platform } = client;
 
@@ -501,6 +503,10 @@ export function createQishuiCar(options = {}) {
         },
 
         feedModes: () => feed.modes(),
+
+        // 手机端「发现 → 模式探索」：public /luna/discover，每次请求内容会换。
+        discoverModes: () => discover.modes(),
+        discoverTracks: (id, limit, cursor) => discover.tracks(id, limit, cursor),
 
         likedSongs: () => library.likedSongs(),
         recentPlayed: (limit, offset) => library.recentPlayed({ limit, offset }).then(page => ({

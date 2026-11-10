@@ -262,6 +262,18 @@ const handlers = {
     // 场景/心情/风格分类树（免登录）。分类 id 回传给 feed 的 scene 参数即可拉该分类的歌。
     'feed.modes': () => api().feedModes(),
 
+    // 手机端「发现 → 模式探索」：公开的 /luna/discover，每次会换一批卡；
+    // 点开某张卡后用 discover.tracks + 卡 id 拉那一路的歌。
+    'discover.modes': () => api().discoverModes(),
+    'discover.tracks': params => {
+        const p = params || {};
+        return api().discoverTracks(
+            String(p.id || ''),
+            qishuiClampInt(p.limit, 20, 1, 50),
+            String(p.cursor || ''),
+        );
+    },
+
     'user.playlists': () => api().userPlaylists(500, 0),
 
     'playlist.tracks': params => {
