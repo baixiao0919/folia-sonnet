@@ -1,0 +1,108 @@
+name: Android Debug APK
+
+# 快速出包：dev + PR#975 液态玻璃 的 debug APK。
+# 跳过 typecheck / 单测（vite build 本身不做类型检查），只为拿到可安装的包。
+# 触发：推 build/lg 分支，或手动 workflow_dispatch。
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - build/lg
+
+permissions:
+  contents: read
+
+jobs:
+  build-debug:
+    name: Build debug APK (liquid glass)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Djava.net.preferIPv4Stack=true
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Restore node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: nm-ubuntu-node22-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            nm-ubuntu-node22-
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Build web assets and sync to Android
+        run: npm run cap:sync:android
+
+      - name: Build debug APK
+        working-directory: ./android
+        run: |
+          chmod +x ./gradlew
+          if ./gradlew assembleDebug --stacktrace; then exit 0; fi
+          echo "Gradle wrapper 下载失败（GitHub release 504），切换到国内镜像重试"
+          sed -i 's#https\\://services\.gradle\.org/distributions/#https\\://mirrors.cloud.tencent.com/gradle/#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          grep distributionUrl gradle/wrapper/gradle-wrapper.properties
+          ./gradlew assembleDebug --stacktrace
+
+      # GitHub Actions 每次都是全新 runner，AGP 会现场生成一张新的 debug 证书，导致每个 APK
+      # 签名都不同、装新版必须先卸载。把 keystore 放进 ~/.android 并不保证 AGP 会读它，
+      # 所以构建完成后直接用 apksigner 拿固定 keystore 重签，签名由我们完全掌控。
+      # 仅用于 debug 包，不是发布签名；密码 / alias 都是 Android 公开的默认值。
+      - name: Re-sign with fixed debug keystore
+        working-directory: ./android
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          APKSIGNER=$(find "$SDK/build-tools" -type f -name apksigner 2>/dev/null | sort | tail -1)
+          if [ -z "$APKSIGNER" ]; then APKSIGNER=$(command -v apksigner || true); fi
+          test -n "$APKSIGNER" || { echo "apksigner not found under $SDK"; exit 1; }
+          echo "using $APKSIGNER"
+          base64 -d ../.github/workflows/debug-keystore.b64 > /tmp/folia-debug.p12
+          "$APKSIGNER" sign \
+            --ks /tmp/folia-debug.p12 --ks-type PKCS12 \
+            --ks-pass pass:android --key-pass pass:android --ks-key-alias androiddebugkey \
+            --v2-signing-enabled true \
+            --out /tmp/app-debug-signed.apk "$APK"
+          mv /tmp/app-debug-signed.apk "$APK"
+          "$APKSIGNER" verify --print-certs "$APK" | head -20
+
+          # 硬门槛：签名证书必须永远是同一张，否则新版无法覆盖安装。
+          # 指纹变了就直接让 CI 失败，绝不允许产出「装不上」的包。
+          EXPECTED=40d6c491c63ee1f8961140d2f5b5a241e9f6df5cd77d70ab508eaac15717ea35
+          ACTUAL=$("$APKSIGNER" verify --print-certs "$APK" \
+            | grep -m1 'SHA-256 digest' \
+            | sed 's/.*digest: *//' | tr -d ':' | tr 'A-Z' 'a-z')
+          echo "signer certificate sha256: $ACTUAL"
+          test "$ACTUAL" = "$EXPECTED" || {
+            echo "::error::签名证书与固定证书不一致，禁止出包（会导致无法覆盖安装）"
+            exit 1
+          }
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: folia-sonnet-liquid-glass-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30

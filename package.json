@@ -9,6 +9,8 @@
   },
   "private": true,
   "version": "0.7.27.3",
+  "displayVersion": "0.7.27.dev8",
+  "androidVersionCode": 7027208,
   "license": "AGPL-3.0",
   "type": "module",
   "main": "electron/main.cjs",
