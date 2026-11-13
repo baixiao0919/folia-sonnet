@@ -35,6 +35,15 @@
         会被应用市场判为过度授权，而我们只需要看这几家的设置页。
         新增候选时**这张表要同步加** —— 漏了不会报错，只会静默退到应用详情页。
     -->
+    <!--
+        Android TV / 盒子兼容：电视没有触摸屏，也没有 Leanback 之外的桌面。
+        · touchscreen required=false —— 否则系统/应用商店会把「无触屏设备」判为不兼容；
+        · software.leanback required=false —— 声明可在 Leanback 桌面出现，但不强制要求
+          TV 专属框架（这样同一个包在普通手机、平板、盒子上都能装）。
+    -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
     <queries>
         <!-- 小米 / Redmi / POCO：安全中心（自启动）、电量和性能（耗电管理） -->
         <package android:name="com.miui.securitycenter" />
@@ -122,6 +131,8 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <!-- Android TV 桌面（Leanback Launcher）的启动入口，与上面的手机桌面入口并存 -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
 
             <!--
